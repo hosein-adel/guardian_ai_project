@@ -1,0 +1,22 @@
+{
+  "gas_leak": {
+    "fa": "هشدار! نشت گاز شناسایی شد. لطفاً فوراً پنجره‌ها را باز کنید و منبع گاز را بررسی کنید.",
+    "en": "Alert! Gas leak detected. Please open windows immediately and check the gas source."
+  },
+  "high_temperature": {
+    "fa": "هشدار! دمای محیط بیش از حد مجاز است. سیستم خنک‌کننده را بررسی کنید.",
+    "en": "Alert! Temperature exceeds the safe threshold. Please check the cooling system."
+  },
+  "flame_detected": {
+    "fa": "هشدار! شعله یا آتش شناسایی شد. فوراً اقدامات ایمنی انجام دهید.",
+    "en": "Alert! Flame or fire detected. Take immediate safety measures."
+  },
+  "motion_detected": {
+    "fa": "هشدار! حرکت مشکوک در محیط شناسایی شد.",
+    "en": "Alert! Suspicious motion detected in the area."
+  },
+  "door_opened": {
+    "fa": "هشدار! درب باز شده است.",
+    "en": "Alert! The door has been opened."
+  }
+}

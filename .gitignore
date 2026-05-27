@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.env
+logs/
+*.mp3
+*.wav
+!static/alarm.mp3
+!static/alarm.wav

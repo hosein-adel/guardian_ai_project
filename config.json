@@ -1,0 +1,14 @@
+{
+  "esp32_base_url": "http://192.168.43.219",
+  "poll_interval_sec": 2,
+  "voice_enabled": true,
+  "alarm_voice_enabled": true,
+  "wake_word_enabled": true,
+  "wake_word_keyword": "porcupine",
+  "vosk_model_en": "models/vosk-en",
+  "vosk_model_fa": "models/vosk-fa",
+  "tts_rate": 170,
+  "tts_volume": 1.0,
+  "command_timeout_sec": 6,
+  "guardian_language_mode": "auto"
+}

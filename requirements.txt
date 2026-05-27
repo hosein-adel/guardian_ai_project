@@ -1,0 +1,10 @@
+flask
+requests
+python-dotenv
+openai
+sounddevice
+pyaudio
+playsound==1.2.2
+pytest
+pytest-flask
+httpx

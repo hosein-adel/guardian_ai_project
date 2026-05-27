@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guardian AI Dashboard</title>
+  <button onclick="listenAndChat()">🎤 صحبت با Guardian</button>
+  <pre id="chatBox"></pre>
+  <select id="langSelect">
+  <option value="fa">فارسی</option>
+  <option value="en">English</option>
+</select>
+<button onclick="listenAndChat()">🎤 Start</button>
+
+  <style>
+    :root{
+      --bg:#07111f;
+      --bg-2:#0b1c31;
+      --panel:rgba(7,17,31,.72);
+      --panel-2:rgba(12,28,48,.78);
+      --stroke:rgba(147,197,253,.18);
+      --glow:0 10px 30px rgba(0,0,0,.25);
+      --text:#e8f2ff;
+      --muted:#9fb4cf;
+      --primary:#38bdf8;
+      --primary-2:#0ea5e9;
+      --success:#22c55e;
+      --danger:#ef4444;
+      --warning:#f59e0b;
+      --info:#60a5fa;
+      --card-radius:22px;
+      --pill-radius:999px;
+      --shadow:0 12px 35px rgba(2, 6, 23, .35);
+      --blur:18px;
+      --transition:.25s ease;
+    }
+
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;
+      padding:0;
+      min-height:100%;
+      font-family:"Vazirmatn","Segoe UI",Tahoma,Arial,sans-serif;
+      color:var(--text);
+      background:
+        linear-gradient(rgba(4,10,20,.72), rgba(4,10,20,.82)),
+        url("/static/دنا.jpg") center center / cover no-repeat fixed;
+    }
+
+    body::before{
+      content:"";
+      position:fixed;
+      inset:0;
+      pointer-events:none;
+      background:
+        radial-gradient(circle at top right, rgba(56,189,248,.16), transparent 30%),
+        radial-gradient(circle at bottom left, rgba(14,165,233,.12), transparent 28%),
+        linear-gradient(to bottom, rgba(7,17,31,.18), rgba(7,17,31,.5));
+      z-index:0;
+    }
+
+    .app{
+      position:relative;
+      z-index:1;
+      max-width:1600px;
+      margin:0 auto;
+      padding:20px;
+    }
+
+    .topbar{
+      display:grid;
+      grid-template-columns:1.3fr .8fr auto;
+      gap:16px;
+      align-items:stretch;
+      margin-bottom:18px;
+    }
+
+    .glass{
+      background:var(--panel);
+      border:1px solid var(--stroke);
+      box-shadow:var(--shadow);
+      border-radius:var(--card-radius);
+      backdrop-filter:blur(var(--blur));
+      -webkit-backdrop-filter:blur(var(--blur));
+    }
+
+    .hero{
+      padding:22px;
+      overflow:hidden;
+      position:relative;
+    }
+
+    .hero::after{
+      content:"";
+      position:absolute;
+      inset:auto -30px -50px auto;
+      width:220px;
+      height:220px;
+      background:radial-gradient(circle, rgba(56,189,248,.20), transparent 60%);
+      border-radius:50%;
+      filter:blur(10px);
+    }
+
+    .title-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      flex-wrap:wrap;
+    }
+
+    .brand h1{
+      margin:0 0 8px;
+      font-size:clamp(24px, 3vw, 40px);
+      font-weight:800;
+      letter-spacing:.2px;
+    }
+
+    .brand p{
+      margin:0;
+      color:var(--muted);
+      line-height:1.8;
+      font-size:14px;
+    }
+
+    .header-badges{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      margin-top:16px;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:10px 14px;
+      border-radius:var(--pill-radius);
+      background:rgba(148,163,184,.10);
+      border:1px solid rgba(148,163,184,.15);
+      color:var(--text);
+      min-height:40px;
+      font-size:13px;
+      white-space:nowrap;
+    }
+
+    .pill strong{font-weight:700}
+    .pill.success{background:rgba(34,197,94,.14); border-color:rgba(34,197,94,.25)}
+    .pill.danger{background:rgba(239,68,68,.14); border-color:rgba(239,68,68,.25)}
+    .pill.warning{background:rgba(245,158,11,.14); border-color:rgba(245,158,11,.25)}
+    .pill.info{background:rgba(59,130,246,.14); border-color:rgba(59,130,246,.25)}
+
+    .connection-wrap,.clock-box,.lang-box{
+      padding:18px 20px;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      min-height:132px;
+    }
+
+    .connection-top,.clock-top,.lang-top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:12px;
+    }
+
+    .label{
+      color:var(--muted);
+      font-size:13px;
+      letter-spacing:.3px;
+    }
+
+    .connection-indicator{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      font-size:15px;
+      font-weight:700;
+    }
+
+    .dot{
+      width:12px;
+      height:12px;
+      border-radius:50%;
+      background:#94a3b8;
+      box-shadow:0 0 0 0 rgba(148,163,184,.5);
+      transition:var(--transition);
+    }
+
+    .dot.online{
+      background:var(--success);
+      box-shadow:0 0 0 8px rgba(34,197,94,.12);
+      animation:pulse 1.8s infinite;
+    }
+
+    .dot.offline{
+      background:var(--danger);
+      box-shadow:0 0 0 8px rgba(239,68,68,.10);
+    }
+
+    @keyframes pulse{
+      0%{transform:scale(1)}
+      50%{transform:scale(1.07)}
+      100%{transform:scale(1)}
+    }
+
+    .clock-time{
+      font-size:34px;
+      font-weight:800;
+      line-height:1.1;
+    }
+
+    .clock-date{
+      margin-top:8px;
+      color:var(--muted);
+      font-size:14px;
+    }
+
+    .lang-actions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .btn{
+      appearance:none;
+      border:none;
+      outline:none;
+      cursor:pointer;
+      transition:var(--transition);
+      border-radius:16px;
+      padding:12px 16px;
+      font-size:14px;
+      font-weight:700;
+      color:#fff;
+      background:linear-gradient(135deg, var(--primary), var(--primary-2));
+      box-shadow:0 8px 24px rgba(14,165,233,.22);
+    }
+
+    .btn:hover{transform:translateY(-1px); filter:brightness(1.04)}
+    .btn:active{transform:translateY(0)}
+    .btn.secondary{
+      background:rgba(148,163,184,.12);
+      color:var(--text);
+      border:1px solid rgba(148,163,184,.2);
+      box-shadow:none;
+    }
+    .btn.success{background:linear-gradient(135deg, #22c55e, #16a34a)}
+    .btn.danger{background:linear-gradient(135deg, #ef4444, #dc2626)}
+    .btn.warning{background:linear-gradient(135deg, #f59e0b, #d97706)}
+    .btn.info{background:linear-gradient(135deg, #60a5fa, #2563eb)}
+    .btn.ghost{
+      background:transparent;
+      border:1px solid rgba(148,163,184,.22);
+      box-shadow:none;
+    }
+    .btn:disabled{
+      opacity:.6;
+      cursor:not-allowed;
+      transform:none;
+      filter:none;
+    }
+
+    .main-grid{
+      display:grid;
+      grid-template-columns:1.15fr .85fr;
+      gap:18px;
+    }
+
+    .left-col,.right-col{
+      display:flex;
+      flex-direction:column;
+      gap:18px;
+    }
+
+    .panel{
+      padding:18px;
+    }
+
+    .panel-header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:16px;
+      flex-wrap:wrap;
+    }
+
+    .panel-header h2{
+      margin:0;
+      font-size:20px;
+      font-weight:800;
+    }
+
+    .panel-subtitle{
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    .sensor-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:16px;
+    }
+
+    .sensor-card{
+      position:relative;
+      padding:18px;
+      border-radius:20px;
+      background:linear-gradient(180deg, rgba(15,23,42,.6), rgba(10,18,32,.82));
+      border:1px solid rgba(148,163,184,.12);
+      box-shadow:var(--glow);
+      overflow:hidden;
+    }
+
+    .sensor-card::before{
+      content:"";
+      position:absolute;
+      inset:0 auto auto 0;
+      width:100%;
+      height:2px;
+      background:linear-gradient(90deg, transparent, rgba(56,189,248,.65), transparent);
+      opacity:.75;
+    }
+
+    .sensor-head{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:12px;
+    }
+
+    .sensor-title{
+      font-size:16px;
+      font-weight:800;
+      margin:0 0 4px;
+    }
+
+    .sensor-caption{
+      color:var(--muted);
+      font-size:12px;
+      margin:0;
+    }
+
+    .sensor-icon{
+      width:44px;
+      height:44px;
+      display:grid;
+      place-items:center;
+      border-radius:14px;
+      background:rgba(56,189,248,.12);
+      border:1px solid rgba(56,189,248,.18);
+      font-size:22px;
+    }
+
+    .sensor-value{
+      display:flex;
+      align-items:flex-end;
+      gap:8px;
+      margin:8px 0 10px;
+    }
+
+    .sensor-value .value{
+      font-size:34px;
+      font-weight:900;
+      line-height:1;
+    }
+
+    .sensor-value .unit{
+      color:var(--muted);
+      font-size:14px;
+      padding-bottom:3px;
+    }
+
+    .status-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .mini-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:7px;
+      padding:8px 12px;
+      border-radius:999px;
+      font-size:12px;
+      font-weight:700;
+      background:rgba(148,163,184,.12);
+      border:1px solid rgba(148,163,184,.16);
+    }
+
+    .mini-badge.ok{background:rgba(34,197,94,.14); border-color:rgba(34,197,94,.25)}
+    .mini-badge.alert{background:rgba(239,68,68,.14); border-color:rgba(239,68,68,.25)}
+    .mini-badge.warn{background:rgba(245,158,11,.14); border-color:rgba(245,158,11,.25)}
+    .mini-badge.info{background:rgba(96,165,250,.14); border-color:rgba(96,165,250,.25)}
+
+    .gauge-wrap{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      margin:8px 0 10px;
+    }
+
+    .gauge{
+      width:150px;
+      height:150px;
+      position:relative;
+      display:grid;
+      place-items:center;
+    }
+
+    .gauge svg{
+      width:150px;
+      height:150px;
+      transform:rotate(-90deg);
+    }
+
+    .gauge-bg{
+      fill:none;
+      stroke:rgba(148,163,184,.18);
+      stroke-width:11;
+    }
+
+    .gauge-progress{
+      fill:none;
+      stroke:url(#tempGradient);
+      stroke-width:11;
+      stroke-linecap:round;
+      stroke-dasharray:377;
+      stroke-dashoffset:377;
+      transition:stroke-dashoffset .6s ease;
+      filter:drop-shadow(0 0 10px rgba(56,189,248,.25));
+    }
+
+    .gauge-center{
+      position:absolute;
+      text-align:center;
+      line-height:1.2;
+    }
+
+    .gauge-center .big{
+      font-size:28px;
+      font-weight:900;
+    }
+
+    .gauge-center .small{
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .controls-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:16px;
+    }
+
+    .control-card{
+      padding:16px;
+      border-radius:18px;
+      background:linear-gradient(180deg, rgba(15,23,42,.58), rgba(10,18,32,.82));
+      border:1px solid rgba(148,163,184,.12);
+    }
+
+    .control-card h3{
+      margin:0 0 8px;
+      font-size:16px;
+    }
+
+    .control-card p{
+      margin:0 0 14px;
+      color:var(--muted);
+      font-size:13px;
+      line-height:1.7;
+    }
+
+    .btn-group{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .form-grid{
+      display:grid;
+      grid-template-columns:repeat(2, minmax(0, 1fr));
+      gap:14px;
+    }
+
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .field label{
+      font-size:13px;
+      color:#dbeafe;
+      font-weight:700;
+    }
+
+    .field input,
+    .field select,
+    .field textarea{
+      width:100%;
+      padding:12px 14px;
+      border-radius:14px;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(15,23,42,.72);
+      color:var(--text);
+      outline:none;
+      font-size:14px;
+      transition:var(--transition);
+    }
+
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus{
+      border-color:rgba(56,189,248,.45);
+      box-shadow:0 0 0 4px rgba(56,189,248,.12);
+    }
+
+    .field textarea{
+      resize:vertical;
+      min-height:108px;
+    }
+
+    .range-wrap{
+      display:flex;
+      align-items:center;
+      gap:12px;
+    }
+
+    .range-wrap input[type="range"]{
+      flex:1;
+      accent-color:var(--primary);
+      padding:0;
+      background:none;
+      box-shadow:none;
+    }
+
+    .range-value{
+      min-width:54px;
+      text-align:center;
+      padding:8px 10px;
+      border-radius:12px;
+      background:rgba(96,165,250,.12);
+      border:1px solid rgba(96,165,250,.2);
+      font-size:12px;
+      font-weight:800;
+    }
+
+    .chat-box{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      min-height:420px;
+    }
+
+    .chat-output{
+      flex:1;
+      min-height:280px;
+      max-height:420px;
+      overflow:auto;
+      padding:14px;
+      border-radius:18px;
+      background:rgba(15,23,42,.55);
+      border:1px solid rgba(148,163,184,.12);
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .chat-message{
+      max-width:88%;
+      padding:12px 14px;
+      border-radius:16px;
+      line-height:1.8;
+      font-size:14px;
+      white-space:pre-wrap;
+      word-break:break-word;
+    }
+
+    .chat-message.user{
+      align-self:flex-start;
+      background:rgba(56,189,248,.14);
+      border:1px solid rgba(56,189,248,.24);
+    }
+
+    .chat-message.bot{
+      align-self:flex-end;
+      background:rgba(34,197,94,.12);
+      border:1px solid rgba(34,197,94,.22);
+    }
+
+    .chat-message.system{
+      align-self:center;
+      background:rgba(148,163,184,.10);
+      border:1px solid rgba(148,163,184,.16);
+      color:var(--muted);
+      max-width:100%;
+      text-align:center;
+      font-size:12px;
+    }
+
+    .chat-compose{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .chat-compose input{
+      flex:1;
+      min-width:220px;
+      padding:13px 14px;
+      border-radius:14px;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(15,23,42,.72);
+      color:var(--text);
+    }
+
+    .footer-note{
+      margin-top:18px;
+      text-align:center;
+      color:var(--muted);
+      font-size:12px;
+      opacity:.95;
+    }
+
+    .toast-wrap{
+      position:fixed;
+      inset:auto 20px 20px 20px;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      pointer-events:none;
+      z-index:50;
+    }
+
+    .toast{
+      align-self:flex-start;
+      pointer-events:auto;
+      min-width:280px;
+      max-width:520px;
+      padding:14px 16px;
+      border-radius:16px;
+      box-shadow:var(--shadow);
+      border:1px solid rgba(148,163,184,.16);
+      background:rgba(15,23,42,.88);
+      backdrop-filter:blur(14px);
+      animation:toastIn .28s ease;
+      font-size:14px;
+    }
+
+    .toast.success{border-color:rgba(34,197,94,.28)}
+    .toast.error{border-color:rgba(239,68,68,.28)}
+    .toast.info{border-color:rgba(96,165,250,.28)}
+    .toast.warning{border-color:rgba(245,158,11,.28)}
+
+    @keyframes toastIn{
+      from{opacity:0; transform:translateY(8px)}
+      to{opacity:1; transform:translateY(0)}
+    }
+
+    .span-2{grid-column:span 2}
+    .hidden{display:none !important}
+
+    [dir="ltr"] .chat-message.user{align-self:flex-end}
+    [dir="ltr"] .chat-message.bot{align-self:flex-start}
+
+    @media (max-width:1200px){
+      .main-grid{grid-template-columns:1fr}
+    }
+
+    @media (max-width:980px){
+      .topbar{grid-template-columns:1fr}
+      .sensor-grid,.controls-grid,.form-grid{grid-template-columns:1fr}
+      .span-2{grid-column:span 1}
+    }
+
+    @media (max-width:640px){
+      .app{padding:14px}
+      .hero,.connection-wrap,.clock-box,.lang-box,.panel{padding:14px}
+      .sensor-card,.control-card{padding:14px}
+      .clock-time{font-size:28px}
+      .btn{width:100%}
+      .btn-group .btn{width:auto; flex:1}
+      .chat-compose{flex-direction:column}
+      .chat-compose .btn{width:100%}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="topbar">
+      <div class="hero glass">
+        <div class="title-row">
+          <div class="brand">
+            <h1 data-i18n="app_title">داشبورد Guardian AI</h1>
+            <p data-i18n="app_desc">
+              سامانه پایش هوشمند، صوتی و امنیتی برای مانیتورینگ سنسورها، کنترل هشدار و تعامل متنی/صوتی.
+            </p>
+          </div>
+        </div>
+
+        <div class="header-badges">
+          <div class="pill info">
+            <span>🛡️</span>
+            <span data-i18n="guardian_status_label">وضعیت Guardian:</span>
+            <strong id="guardian-status-pill">--</strong>
+          </div>
+
+          <div class="pill warning">
+            <span>🚨</span>
+            <span data-i18n="alarm_status_label">وضعیت آلارم:</span>
+            <strong id="alarm-status-pill">--</strong>
+          </div>
+
+          <div class="pill">
+            <span>🔇</span>
+            <span data-i18n="alarm_muted_label">وضعیت بی‌صدا:</span>
+            <strong id="alarm-muted-status-pill">--</strong>
+          </div>
+
+          <div class="pill">
+            <span>🎙️</span>
+            <span>STT:</span>
+            <strong id="stt-status-pill">--</strong>
+          </div>
+
+          <div class="pill">
+            <span>🔊</span>
+            <span>TTS:</span>
+            <strong id="tts-status-pill">--</strong>
+          </div>
+
+          <div class="pill">
+            <span>👂</span>
+            <span data-i18n="wakeword_label">Wakeword:</span>
+            <strong id="wakeword-status-pill">--</strong>
+          </div>
+
+          <div class="pill span-last">
+            <span>🗣️</span>
+            <span data-i18n="last_command_label">آخرین فرمان:</span>
+            <strong id="last-voice-command">--</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="connection-wrap glass">
+        <div class="connection-top">
+          <span class="label" data-i18n="connection_label">وضعیت ارتباط</span>
+          <span class="label" id="polling-indicator">1s</span>
+        </div>
+        <div class="connection-indicator">
+          <span id="connection-dot" class="dot offline"></span>
+          <span id="connection-status" data-i18n="offline">آفلاین</span>
+        </div>
+      </div>
+
+      <div class="clock-box glass">
+        <div class="clock-top">
+          <span class="label" data-i18n="time_label">زمان محلی</span>
+          <span class="label" id="calendar-mode-label">FA</span>
+        </div>
+        <div id="localClock" class="clock-time">--:--:--</div>
+        <div id="localDate" class="clock-date">--</div>
+      </div>
+    </section>
+
+    <section class="topbar" style="grid-template-columns:1fr;">
+      <div class="lang-box glass">
+        <div class="lang-top">
+          <span class="label" data-i18n="language_label">زبان رابط کاربری</span>
+          <span class="label" id="active-lang-label">FA / RTL</span>
+        </div>
+        <div class="lang-actions">
+          <button id="lang-fa-btn" class="btn info">فارسی</button>
+          <button id="lang-en-btn" class="btn secondary">English</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="main-grid">
+      <div class="left-col">
+        <div class="panel glass">
+          <div class="panel-header">
+            <div>
+              <h2 data-i18n="sensors_title">نمایشگر سنسورها</h2>
+              <div class="panel-subtitle" data-i18n="sensors_subtitle">
+                پایش زنده‌ی دما، رطوبت، گاز، شعله، درب و حرکت
+              </div>
+            </div>
+          </div>
+
+          <div class="sensor-grid">
+            <div class="sensor-card">
+              <div class="sensor-head">
+                <div>
+                  <h3 class="sensor-title" data-i18n="temperature">دما</h3>
+                  <p class="sensor-caption" data-i18n="temperature_desc">نمایش آنالوگ و عددی دمای محیط</p>
+                </div>
+                <div class="sensor-icon">🌡️</div>
+              </div>
+
+              <div class="gauge-wrap">
+                <div class="gauge">
+                  <svg viewBox="0 0 140 140" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="tempGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#38bdf8"/>
+                        <stop offset="100%" stop-color="#22c55e"/>
+                      </linearGradient>
+                    </defs>
+                    <circle class="gauge-bg" cx="70" cy="70" r="60"></circle>
+                    <circle id="temp-gauge-progress" class="gauge-progress" cx="70" cy="70" r="60"></circle>
+                  </svg>
+                  <div class="gauge-center">
+                    <div class="big" id="temperature-value">--</div>
+                    <div class="small">°C</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="status-row">
+                <div class="mini-badge info">
+                  <span data-i18n="status">وضعیت</span>
+                  <strong id="temperature-state">--</strong>
+                </div>
+                <div class="sensor-value">
+                  <span class="value" id="temperature-digital">--</span>
+                  <span class="unit">°C</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="sensor-card">
+              <div class="sensor-head">
+                <div>
+                  <h3 class="sensor-title" data-i18n="humidity">رطوبت</h3>
+                  <p class="sensor-caption" data-i18n="humidity_desc">نمایش درصد رطوبت محیط</p>
+                </div>
+                <div class="sensor-icon">💧</div>
+              </div>
+              <div class="sensor-value">
+                <span class="value" id="humidity-value">--</span>
+                <span class="unit">%</span>
+              </div>
+              <div class="status-row">
+                <div class="mini-badge info">
+                  <span data-i18n="status">وضعیت</span>
+                  <strong id="humidity-state">--</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="sensor-card">
+              <div class="sensor-head">
+                <div>
+                  <h3 class="sensor-title" data-i18n="gas">گاز MQ9</h3>
+                  <p class="sensor-caption" data-i18n="gas_desc">پایش غلظت گاز و بخارات قابل اشتعال</p>
+                </div>
+                <div class="sensor-icon">🧪</div>
+              </div>
+              <div class="sensor-value">
+                <span class="value" id="mq9-value">--</span>
+                <span class="unit">ppm</span>
+              </div>
+              <div class="status-row">
+                <div class="mini-badge info">
+                  <span data-i18n="status">وضعیت</span>
+                  <strong id="mq9-state">--</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="sensor-card">
+              <div class="sensor-head">
+                <div>
+                  <h3 class="sensor-title" data-i18n="flame">شعله</h3>
+                  <p class="sensor-caption" data-i18n="flame_desc">تشخیص وجود آتش یا شعله</p>
+                </div>
+                <div class="sensor-icon">🔥</div>
+              </div>
+              <div class="sensor-value">
+                <span class="value" id="flame-value">--</span>
+                <span class="unit" data-i18n="boolean_unit">Bool</span>
+              </div>
+              <div class="status-row">
+                <div class="mini-badge info">
+                  <span data-i18n="status">وضعیت</span>
+                  <strong id="flame-state">--</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="sensor-card">
+              <div class="sensor-head">
+                <div>
+                  <h3 class="sensor-title" data-i18n="door">درب</h3>
+                  <p class="sensor-caption" data-i18n="door_desc">وضعیت باز یا بسته بودن درب</p>
+                </div>
+                <div class="sensor-icon">🚪</div>
+              </div>
+              <div class="sensor-value">
+                <span class="value" id="door-value">--</span>
+                <span class="unit" data-i18n="boolean_unit">Bool</span>
+              </div>
+              <div class="status-row">
+                <div class="mini-badge info">
+                  <span data-i18n="status">وضعیت</span>
+                  <strong id="door-state">--</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="sensor-card">
+              <div class="sensor-head">
+                <div>
+                  <h3 class="sensor-title" data-i18n="motion">حرکت</h3>
+                  <p class="sensor-caption" data-i18n="motion_desc">تشخیص حرکت در محیط</p>
+                </div>
+                <div class="sensor-icon">🏃</div>
+              </div>
+              <div class="sensor-value">
+                <span class="value" id="motion-value">--</span>
+                <span class="unit" data-i18n="boolean_unit">Bool</span>
+              </div>
+              <div class="status-row">
+                <div class="mini-badge info">
+                  <span data-i18n="status">وضعیت</span>
+                  <strong id="motion-state">--</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-header">
+            <div>
+              <h2 data-i18n="controls_title">کنترل‌ها</h2>
+              <div class="panel-subtitle" data-i18n="controls_subtitle">
+                مدیریت Guardian، آلارم، دستیار صوتی و موتور Wakeword
+              </div>
+            </div>
+          </div>
+
+          <div class="controls-grid">
+            <div class="control-card">
+              <h3 data-i18n="guardian_control">کنترل Guardian</h3>
+              <p data-i18n="guardian_control_desc">فعال یا غیرفعال‌سازی هسته نظارتی Guardian.</p>
+              <div class="btn-group">
+                <button id="guardian-start-btn" class="btn success" type="button" data-i18n="start_guardian">شروع Guardian</button>
+                <button id="guardian-stop-btn" class="btn danger" type="button" data-i18n="stop_guardian">توقف Guardian</button>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <h3 data-i18n="alarm_control">کنترل آلارم</h3>
+              <p data-i18n="alarm_control_desc">مدیریت حالت بی‌صدا و صدا دار بودن آلارم.</p>
+              <div class="btn-group">
+                <button id="alarm-mute-btn" class="btn warning" type="button" data-i18n="mute_alarm">بی‌صدا کردن</button>
+                <button id="alarm-unmute-btn" class="btn info" type="button" data-i18n="unmute_alarm">فعال‌کردن صدا</button>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <h3 data-i18n="stt_control">کنترل STT</h3>
+              <p data-i18n="stt_control_desc">شروع یا توقف تبدیل گفتار به متن.</p>
+              <div class="btn-group">
+                <button id="stt-start-btn" class="btn success" type="button" data-i18n="start_stt">شروع STT</button>
+                <button id="stt-stop-btn" class="btn danger" type="button" data-i18n="stop_stt">توقف STT</button>
+              </div>
+            </div>
+
+            <div class="control-card">
+              <h3 data-i18n="wakeword_control">کنترل Wakeword</h3>
+              <p data-i18n="wakeword_control_desc">فعال یا غیرفعال‌سازی تشخیص واژه بیدارباش.</p>
+              <div class="btn-group">
+                <button id="wakeword-enable-btn" class="btn success" type="button" data-i18n="enable_wakeword">فعال‌سازی Wakeword</button>
+                <button id="wakeword-disable-btn" class="btn danger" type="button" data-i18n="disable_wakeword">غیرفعال‌سازی Wakeword</button>
+              </div>
+            </div>
+
+            <div class="control-card span-2">
+              <h3 data-i18n="tts_control">تبدیل متن به گفتار</h3>
+              <p data-i18n="tts_control_desc">متن را وارد کنید تا توسط موتور TTS خوانده شود.</p>
+              <div class="chat-compose">
+                <input id="tts-text-input" type="text" data-i18n-placeholder="tts_placeholder" placeholder="متنی برای خواندن وارد کنید..." />
+                <button id="tts-speak-btn" class="btn info" type="button" data-i18n="speak">خواندن متن</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-header">
+            <div>
+              <h2 data-i18n="config_title">پیکربندی سیستم</h2>
+              <div class="panel-subtitle" data-i18n="config_subtitle">
+                تنظیم آستانه‌ها، IP، حساسیت Wakeword و پارامترهای صوتی
+              </div>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <div class="field">
+              <label for="esp32-ip-input">ESP32 IP</label>
+              <input id="esp32-ip-input" type="text" placeholder="192.168.1.50" />
+            </div>
+
+            <div class="field">
+              <label for="stt-language-select" data-i18n="stt_language">زبان STT</label>
+              <select id="stt-language-select">
+                <option value="fa">fa</option>
+                <option value="en">en</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="temp-threshold-input" data-i18n="temp_threshold">آستانه دما</label>
+              <input id="temp-threshold-input" type="number" step="0.1" value="50" />
+            </div>
+
+            <div class="field">
+              <label for="gas-threshold-input" data-i18n="gas_threshold">آستانه گاز</label>
+              <input id="gas-threshold-input" type="number" step="0.1" value="400" />
+            </div>
+
+            <div class="field">
+              <label for="humidity-threshold-input" data-i18n="humidity_threshold">آستانه رطوبت</label>
+              <input id="humidity-threshold-input" type="number" step="0.1" value="70" />
+            </div>
+
+            <div class="field">
+              <label for="tts-voice-id-input">TTS Voice ID</label>
+              <input id="tts-voice-id-input" type="text" placeholder="default" />
+            </div>
+
+            <div class="field">
+              <label for="tts-model-name-input">TTS Model Path / Name</label>
+              <input id="tts-model-name-input" type="text" placeholder="models/tts" />
+            </div>
+
+            <div class="field">
+              <label for="wakeword-sensitivity-input" data-i18n="wakeword_sensitivity">حساسیت Wakeword</label>
+              <div class="range-wrap">
+                <input id="wakeword-sensitivity-input" type="range" min="0" max="1" step="0.01" value="0.5" />
+                <span id="wakeword-sensitivity-value" class="range-value">0.50</span>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="audio-input-device-index-input">Audio Input Device Index</label>
+              <input id="audio-input-device-index-input" type="number" step="1" placeholder="0" />
+            </div>
+
+            <div class="field">
+              <label for="audio-output-device-index-input">Audio Output Device Index</label>
+              <input id="audio-output-device-index-input" type="number" step="1" placeholder="0" />
+            </div>
+
+            <div class="field span-2">
+              <label for="system-prompt-input">System Prompt</label>
+              <textarea id="system-prompt-input" placeholder="Guardian AI system prompt..."></textarea>
+            </div>
+          </div>
+
+          <div class="btn-group" style="margin-top:16px;">
+            <button id="save-config-btn" class="btn success" type="button" data-i18n="save_config">ذخیره تنظیمات</button>
+            <button id="load-config-btn" class="btn secondary" type="button" data-i18n="load_config">بارگذاری تنظیمات</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="panel glass">
+          <div class="panel-header">
+            <div>
+              <h2 data-i18n="chat_title">چت با Guardian AI</h2>
+              <div class="panel-subtitle" data-i18n="chat_subtitle">
+                فرمان متنی ارسال کنید و پاسخ سیستم را دریافت کنید
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-box">
+            <div id="chat-output" class="chat-output">
+              <div class="chat-message system" data-i18n="chat_system_welcome">
+                ارتباط با Guardian AI آماده است.
+              </div>
+            </div>
+
+            <div class="chat-compose">
+              <input id="chat-input" type="text" data-i18n-placeholder="chat_placeholder" placeholder="دستور یا پیام خود را بنویسید..." />
+              <button id="chat-send-btn" class="btn" type="button" data-i18n="send">ارسال</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-header">
+            <div>
+              <h2 data-i18n="system_snapshot">وضعیت سریع سیستم</h2>
+              <div class="panel-subtitle" data-i18n="system_snapshot_desc">
+                خلاصه‌ی بلادرنگ از وضعیت عملکرد اجزای اصلی
+              </div>
+            </div>
+          </div>
+
+          <div class="controls-grid">
+            <div class="control-card">
+              <h3 data-i18n="guardian_engine">هسته Guardian</h3>
+              <p id="guardian-quick-text">--</p>
+            </div>
+            <div class="control-card">
+              <h3>STT / TTS</h3>
+              <p id="voice-quick-text">--</p>
+            </div>
+            <div class="control-card">
+              <h3 data-i18n="alarm_engine">سامانه آلارم</h3>
+              <p id="alarm-quick-text">--</p>
+            </div>
+            <div class="control-card">
+              <h3 data-i18n="environment_status">وضعیت محیط</h3>
+              <p id="environment-quick-text">--</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer-note" data-i18n="footer_note">
+      Guardian AI Dashboard — Flask + ESP32 + STT/TTS + Wakeword
+    </p>
+  </div>
+
+  <audio id="alarmAudio" preload="auto"></audio>
+  <div id="toast-wrap" class="toast-wrap"></div>
+
+  <script>
+    const state = {
+      lang: localStorage.getItem('guardian_lang') || 'fa',
+      lastData: null,
+      localAlarmMuted: null,
+      pollingMs: 1000,
+      defaults: {
+        ESP32_IP: '',
+        TEMPERATURE_THRESHOLD: 50,
+        HUMIDITY_THRESHOLD: 70,
+        GAS_THRESHOLD: 400,
+        WAKEWORD_SENSITIVITY: 0.5,
+        STT_LANGUAGE: 'fa',
+        TTS_VOICE_ID: '',
+        TTS_MODEL_PATH: '',
+        AUDIO_INPUT_DEVICE_INDEX: '',
+        AUDIO_OUTPUT_DEVICE_INDEX: '',
+        SYSTEM_PROMPT: ''
+      }
+    };
+
+    const i18n = {
+      fa: {
+        app_title: 'داشبورد Guardian AI',
+        app_desc: 'سامانه پایش هوشمند، صوتی و امنیتی برای مانیتورینگ سنسورها، کنترل هشدار و تعامل متنی/صوتی.',
+        connection_label: 'وضعیت ارتباط',
+        offline: 'آفلاین',
+        online: 'آنلاین',
+        time_label: 'زمان محلی',
+        language_label: 'زبان رابط کاربری',
+        sensors_title: 'نمایشگر سنسورها',
+        sensors_subtitle: 'پایش زنده‌ی دما، رطوبت، گاز، شعله، درب و حرکت',
+        controls_title: 'کنترل‌ها',
+        controls_subtitle: 'مدیریت Guardian، آلارم، دستیار صوتی و موتور Wakeword',
+        config_title: 'پیکربندی سیستم',
+        config_subtitle: 'تنظیم آستانه‌ها، IP، حساسیت Wakeword و پارامترهای صوتی',
+        chat_title: 'چت با Guardian AI',
+        chat_subtitle: 'فرمان متنی ارسال کنید و پاسخ سیستم را دریافت کنید',
+        system_snapshot: 'وضعیت سریع سیستم',
+        system_snapshot_desc: 'خلاصه‌ی بلادرنگ از وضعیت عملکرد اجزای اصلی',
+        temperature: 'دما',
+        temperature_desc: 'نمایش آنالوگ و عددی دمای محیط',
+        humidity: 'رطوبت',
+        humidity_desc: 'نمایش درصد رطوبت محیط',
+        gas: 'گاز MQ9',
+        gas_desc: 'پایش غلظت گاز و بخارات قابل اشتعال',
+        flame: 'شعله',
+        flame_desc: 'تشخیص وجود آتش یا شعله',
+        door: 'درب',
+        door_desc: 'وضعیت باز یا بسته بودن درب',
+        motion: 'حرکت',
+        motion_desc: 'تشخیص حرکت در محیط',
+        status: 'وضعیت',
+        boolean_unit: 'Bool',
+        guardian_status_label: 'وضعیت Guardian:',
+        alarm_status_label: 'وضعیت آلارم:',
+        alarm_muted_label: 'وضعیت بی‌صدا:',
+        wakeword_label: 'Wakeword:',
+        last_command_label: 'آخرین فرمان:',
+        guardian_control: 'کنترل Guardian',
+        guardian_control_desc: 'فعال یا غیرفعال‌سازی هسته نظارتی Guardian.',
+        start_guardian: 'شروع Guardian',
+        stop_guardian: 'توقف Guardian',
+        alarm_control: 'کنترل آلارم',
+        alarm_control_desc: 'مدیریت حالت بی‌صدا و صدا دار بودن آلارم.',
+        mute_alarm: 'بی‌صدا کردن',
+        unmute_alarm: 'فعال‌کردن صدا',
+        stt_control: 'کنترل STT',
+        stt_control_desc: 'شروع یا توقف تبدیل گفتار به متن.',
+        start_stt: 'شروع STT',
+        stop_stt: 'توقف STT',
+        wakeword_control: 'کنترل Wakeword',
+        wakeword_control_desc: 'فعال یا غیرفعال‌سازی تشخیص واژه بیدارباش.',
+        enable_wakeword: 'فعال‌سازی Wakeword',
+        disable_wakeword: 'غیرفعال‌سازی Wakeword',
+        tts_control: 'تبدیل متن به گفتار',
+        tts_control_desc: 'متن را وارد کنید تا توسط موتور TTS خوانده شود.',
+        speak: 'خواندن متن',
+        tts_placeholder: 'متنی برای خواندن وارد کنید...',
+        stt_language: 'زبان STT',
+        temp_threshold: 'آستانه دما',
+        gas_threshold: 'آستانه گاز',
+        humidity_threshold: 'آستانه رطوبت',
+        wakeword_sensitivity: 'حساسیت Wakeword',
+        save_config: 'ذخیره تنظیمات',
+        load_config: 'بارگذاری تنظیمات',
+        chat_placeholder: 'دستور یا پیام خود را بنویسید...',
+        send: 'ارسال',
+        chat_system_welcome: 'ارتباط با Guardian AI آماده است.',
+        guardian_engine: 'هسته Guardian',
+        alarm_engine: 'سامانه آلارم',
+        environment_status: 'وضعیت محیط',
+        footer_note: 'Guardian AI Dashboard — Flask + ESP32 + STT/TTS + Wakeword',
+        active: 'فعال',
+        inactive: 'غیرفعال',
+        enabled: 'روشن',
+        disabled: 'خاموش',
+        normal: 'عادی',
+        high: 'بالا',
+        danger: 'خطر',
+        detected: 'تشخیص شد',
+        not_detected: 'تشخیص نشد',
+        open: 'باز',
+        closed: 'بسته',
+        connected: 'متصل',
+        disconnected: 'قطع',
+        muted: 'بی‌صدا',
+        unmuted: 'با صدا',
+        yes: 'بله',
+        no: 'خیر',
+        sending: 'در حال ارسال...',
+        no_response: 'پاسخی دریافت نشد.',
+        defaults_loaded: 'مقادیر پیش‌فرض رابط کاربری بارگذاری شد. مسیر GET /api/config در بک‌اند فعلی وجود ندارد.',
+        config_saved: 'تنظیمات با موفقیت ارسال شد.',
+        action_done: 'عملیات با موفقیت انجام شد.',
+        request_failed: 'درخواست با خطا مواجه شد.',
+        network_error: 'خطای ارتباط با سرور.',
+        empty_text: 'لطفاً متن یا پیام را وارد کنید.',
+        quick_guardian_on: 'Guardian فعال است و هسته نظارتی در حال اجراست.',
+        quick_guardian_off: 'Guardian غیرفعال است.',
+        quick_voice: 'STT: {stt} | TTS: {tts} | Wakeword: {wake}',
+        quick_alarm: 'Alarm: {alarm} | Mute: {mute}',
+        quick_env: 'Temp: {temp}°C | Hum: {hum}% | Gas: {gas} ppm',
+        server_error: 'خطای سرور',
+        unknown: 'نامشخص'
+      },
+      en: {
+        app_title: 'Guardian AI Dashboard',
+        app_desc: 'Intelligent monitoring, voice, and security platform for sensors, alarm control, and text/voice interaction.',
+        connection_label: 'Connection Status',
+        offline: 'Offline',
+        online: 'Online',
+        time_label: 'Local Time',
+        language_label: 'Interface Language',
+        sensors_title: 'Sensors Overview',
+        sensors_subtitle: 'Live monitoring of temperature, humidity, gas, flame, door, and motion',
+        controls_title: 'Controls',
+        controls_subtitle: 'Manage Guardian, alarm, voice assistant, and wakeword engine',
+        config_title: 'System Configuration',
+        config_subtitle: 'Adjust thresholds, IP, wakeword sensitivity, and voice parameters',
+        chat_title: 'Chat with Guardian AI',
+        chat_subtitle: 'Send a text command and receive the system response',
+        system_snapshot: 'Quick System Snapshot',
+        system_snapshot_desc: 'Real-time summary of main components status',
+        temperature: 'Temperature',
+        temperature_desc: 'Analog and digital environment temperature display',
+        humidity: 'Humidity',
+        humidity_desc: 'Ambient humidity percentage',
+        gas: 'MQ9 Gas',
+        gas_desc: 'Gas and flammable vapor concentration monitoring',
+        flame: 'Flame',
+        flame_desc: 'Detects fire or flame presence',
+        door: 'Door',
+        door_desc: 'Door open/close state',
+        motion: 'Motion',
+        motion_desc: 'Movement detection in the environment',
+        status: 'Status',
+        boolean_unit: 'Bool',
+        guardian_status_label: 'Guardian Status:',
+        alarm_status_label: 'Alarm Status:',
+        alarm_muted_label: 'Mute Status:',
+        wakeword_label: 'Wakeword:',
+        last_command_label: 'Last Command:',
+        guardian_control: 'Guardian Control',
+        guardian_control_desc: 'Enable or disable the Guardian monitoring core.',
+        start_guardian: 'Start Guardian',
+        stop_guardian: 'Stop Guardian',
+        alarm_control: 'Alarm Control',
+        alarm_control_desc: 'Manage mute and unmute alarm mode.',
+        mute_alarm: 'Mute Alarm',
+        unmute_alarm: 'Unmute Alarm',
+        stt_control: 'STT Control',
+        stt_control_desc: 'Start or stop speech-to-text.',
+        start_stt: 'Start STT',
+        stop_stt: 'Stop STT',
+        wakeword_control: 'Wakeword Control',
+        wakeword_control_desc: 'Enable or disable wakeword detection.',
+        enable_wakeword: 'Enable Wakeword',
+        disable_wakeword: 'Disable Wakeword',
+        tts_control: 'Text to Speech',
+        tts_control_desc: 'Enter text to be spoken by the TTS engine.',
+        speak: 'Speak',
+        tts_placeholder: 'Enter text to speak...',
+        stt_language: 'STT Language',
+        temp_threshold: 'Temperature Threshold',
+        gas_threshold: 'Gas Threshold',
+        humidity_threshold: 'Humidity Threshold',
+        wakeword_sensitivity: 'Wakeword Sensitivity',
+        save_config: 'Save Config',
+        load_config: 'Load Config',
+        chat_placeholder: 'Type your command or message...',
+        send: 'Send',
+        chat_system_welcome: 'Guardian AI connection is ready.',
+        guardian_engine: 'Guardian Engine',
+        alarm_engine: 'Alarm Engine',
+        environment_status: 'Environment Status',
+        footer_note: 'Guardian AI Dashboard — Flask + ESP32 + STT/TTS + Wakeword',
+        active: 'Active',
+        inactive: 'Inactive',
+        enabled: 'Enabled',
+        disabled: 'Disabled',
+        normal: 'Normal',
+        high: 'High',
+        danger: 'Danger',
+        detected: 'Detected',
+        not_detected: 'Not Detected',
+        open: 'Open',
+        closed: 'Closed',
+        connected: 'Connected',
+        disconnected: 'Disconnected',
+        muted: 'Muted',
+        unmuted: 'Audible',
+        yes: 'Yes',
+        no: 'No',
+        sending: 'Sending...',
+        no_response: 'No response received.',
+        defaults_loaded: 'UI defaults loaded. GET /api/config is not available in the current backend.',
+        config_saved: 'Configuration sent successfully.',
+        action_done: 'Action completed successfully.',
+        request_failed: 'Request failed.',
+        network_error: 'Network error while contacting server.',
+        empty_text: 'Please enter text or a message.',
+        quick_guardian_on: 'Guardian is active and the monitoring core is running.',
+        quick_guardian_off: 'Guardian is inactive.',
+        quick_voice: 'STT: {stt} | TTS: {tts} | Wakeword: {wake}',
+        quick_alarm: 'Alarm: {alarm} | Mute: {mute}',
+        quick_env: 'Temp: {temp}°C | Hum: {hum}% | Gas: {gas} ppm',
+        server_error: 'Server error',
+        unknown: 'Unknown'
+      }
+    };
+
+    const el = (id) => document.getElementById(id);
+
+    function t(key){
+      return i18n[state.lang][key] || key;
+    }
+
+    function formatText(template, vars = {}){
+      return template.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
+    }
+
+    function setLang(lang){
+      state.lang = lang;
+      localStorage.setItem('guardian_lang', lang);
+
+      document.documentElement.lang = lang;
+      document.documentElement.dir = lang === 'fa' ? 'rtl' : 'ltr';
+      el('active-lang-label').textContent = lang === 'fa' ? 'FA / RTL' : 'EN / LTR';
+      el('calendar-mode-label').textContent = lang.toUpperCase();
+
+      document.querySelectorAll('[data-i18n]').forEach(node => {
+        const key = node.getAttribute('data-i18n');
+        node.textContent = t(key);
+      });
+
+      document.querySelectorAll('[data-i18n-placeholder]').forEach(node => {
+        const key = node.getAttribute('data-i18n-placeholder');
+        node.placeholder = t(key);
+      });
+
+      el('lang-fa-btn').className = lang === 'fa' ? 'btn info' : 'btn secondary';
+      el('lang-en-btn').className = lang === 'en' ? 'btn info' : 'btn secondary';
+
+      updateClock();
+      if (state.lastData) updateUI(state.lastData);
+    }
+
+    function showToast(message, type='info', timeout=3500){
+      const wrap = el('toast-wrap');
+      const node = document.createElement('div');
+      node.className = `toast ${type}`;
+      node.textContent = message;
+      wrap.appendChild(node);
+      setTimeout(() => {
+        node.style.opacity = '0';
+        node.style.transform = 'translateY(6px)';
+        setTimeout(() => node.remove(), 240);
+      }, timeout);
+    }
+
+    function safeNum(value, fallback = 0){
+      const n = Number(value);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    function safeText(value, fallback='--'){
+      if (value === null || value === undefined || value === '') return fallback;
+      return String(value);
+    }
+
+    function boolish(value){
+      return value === true || value === 1 || value === '1' || value === 'true' || value === 'True';
+    }
+
+    function setConnection(online){
+      const dot = el('connection-dot');
+      const status = el('connection-status');
+      dot.classList.remove('online', 'offline');
+      dot.classList.add(online ? 'online' : 'offline');
+      status.textContent = online ? t('online') : t('offline');
+    }
+
+    function setPill(id, value, onText = t('active'), offText = t('inactive')){
+      const node = el(id);
+      node.textContent = value ? onText : offText;
+    }
+
+    function setGaugeTemperature(temp){
+      const value = Math.max(0, Math.min(100, safeNum(temp, 0)));
+      const circumference = 2 * Math.PI * 60;
+      const progress = circumference - (value / 100) * circumference;
+      el('temp-gauge-progress').style.strokeDasharray = `${circumference}`;
+      el('temp-gauge-progress').style.strokeDashoffset = `${progress}`;
+    }
+
+    function classifyTemperature(temp){
+      temp = safeNum(temp, 0);
+      const threshold = safeNum(el('temp-threshold-input').value || state.defaults.TEMPERATURE_THRESHOLD, 50);
+      if (temp >= threshold) return { text: t('danger'), cls: 'alert' };
+      if (temp >= threshold * 0.8) return { text: t('high'), cls: 'warn' };
+      return { text: t('normal'), cls: 'ok' };
+    }
+
+    function classifyHumidity(hum){
+      hum = safeNum(hum, 0);
+      const threshold = safeNum(el('humidity-threshold-input').value || state.defaults.HUMIDITY_THRESHOLD, 70);
+      if (hum >= threshold) return { text: t('high'), cls: 'warn' };
+      return { text: t('normal'), cls: 'ok' };
+    }
+
+    function classifyGas(gas){
+      gas = safeNum(gas, 0);
+      const threshold = safeNum(el('gas-threshold-input').value || state.defaults.GAS_THRESHOLD, 400);
+      if (gas >= threshold) return { text: t('danger'), cls: 'alert' };
+      if (gas >= threshold * 0.8) return { text: t('high'), cls: 'warn' };
+      return { text: t('normal'), cls: 'ok' };
+    }
+
+    function applyBadgeClass(id, cls){
+      const badge = el(id).parentElement;
+      badge.classList.remove('ok', 'alert', 'warn', 'info');
+      badge.classList.add(cls || 'info');
+    }
+
+    function updateBooleanSensor(name, value, trueLabel, falseLabel){
+      const active = boolish(value);
+      el(`${name}-value`).textContent = active ? t('yes') : t('no');
+      el(`${name}-state`).textContent = active ? trueLabel : falseLabel;
+      applyBadgeClass(`${name}-state`, active ? 'alert' : 'ok');
+    }
+
+    function updateQuickSnapshot(data){
+      const guardianOn = boolish(data.guardian_status);
+      const alarmOn = boolish(data.alarm_status);
+      const sttOn = boolish(data.stt_active);
+      const ttsOn = boolish(data.tts_active);
+      const wakeOn = boolish(data.wakeword_active);
+      const muted = state.localAlarmMuted === null ? t('unknown') : (state.localAlarmMuted ? t('muted') : t('unmuted'));
+
+      el('guardian-quick-text').textContent = guardianOn ? t('quick_guardian_on') : t('quick_guardian_off');
+      el('voice-quick-text').textContent = formatText(t('quick_voice'), {
+        stt: sttOn ? t('active') : t('inactive'),
+        tts: ttsOn ? t('active') : t('inactive'),
+        wake: wakeOn ? t('enabled') : t('disabled')
+      });
+      el('alarm-quick-text').textContent = formatText(t('quick_alarm'), {
+        alarm: alarmOn ? t('active') : t('inactive'),
+        mute: muted
+      });
+      el('environment-quick-text').textContent = formatText(t('quick_env'), {
+        temp: safeText(data.temperature, '--'),
+        hum: safeText(data.humidity, '--'),
+        gas: safeText(data.gas, '--')
+      });
+    }
+
+    function updateUI(data){
+      state.lastData = data;
+
+      const temp = safeNum(data.temperature, 0);
+      const hum = safeNum(data.humidity, 0);
+      const gas = safeNum(data.gas, 0);
+
+      el('temperature-value').textContent = temp.toFixed(1);
+      el('temperature-digital').textContent = temp.toFixed(1);
+      setGaugeTemperature(temp);
+      const tempState = classifyTemperature(temp);
+      el('temperature-state').textContent = tempState.text;
+      applyBadgeClass('temperature-state', tempState.cls);
+
+      el('humidity-value').textContent = hum.toFixed(1);
+      const humState = classifyHumidity(hum);
+      el('humidity-state').textContent = humState.text;
+      applyBadgeClass('humidity-state', humState.cls);
+
+      el('mq9-value').textContent = gas.toFixed(1);
+      const gasState = classifyGas(gas);
+      el('mq9-state').textContent = gasState.text;
+      applyBadgeClass('mq9-state', gasState.cls);
+
+      updateBooleanSensor('flame', data.flame, t('detected'), t('not_detected'));
+      updateBooleanSensor('door', data.door, t('open'), t('closed'));
+      updateBooleanSensor('motion', data.motion, t('detected'), t('not_detected'));
+
+      setPill('guardian-status-pill', boolish(data.guardian_status), t('active'), t('inactive'));
+      setPill('alarm-status-pill', boolish(data.alarm_status), t('active'), t('inactive'));
+      setPill('stt-status-pill', boolish(data.stt_active), t('active'), t('inactive'));
+      setPill('tts-status-pill', boolish(data.tts_active), t('active'), t('inactive'));
+      setPill('wakeword-status-pill', boolish(data.wakeword_active), t('enabled'), t('disabled'));
+
+      if (state.localAlarmMuted === null) {
+        el('alarm-muted-status-pill').textContent = t('unknown');
+      } else {
+        el('alarm-muted-status-pill').textContent = state.localAlarmMuted ? t('muted') : t('unmuted');
+      }
+
+      el('last-voice-command').textContent = safeText(data.last_voice_command, '--');
+
+      updateQuickSnapshot(data);
+    }
+
+    function updateClock(){
+      const now = new Date();
+      const locale = state.lang === 'fa' ? 'fa-IR' : 'en-US';
+      const time = now.toLocaleTimeString(locale, { hour12:false });
+      const date = now.toLocaleDateString(locale, {
+        weekday:'long',
+        year:'numeric',
+        month:'long',
+        day:'numeric'
+      });
+      el('localClock').textContent = time;
+      el('localDate').textContent = date;
+    }
+
+    function addChatMessage(text, type='bot'){
+      const node = document.createElement('div');
+      node.className = `chat-message ${type}`;
+      node.textContent = text;
+      const wrap = el('chat-output');
+      wrap.appendChild(node);
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+
+    async function postAction(endpoint, payload = {}){
+      const res = await fetch(endpoint, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const raw = await res.text();
+      let data = {};
+      try { data = raw ? JSON.parse(raw) : {}; } catch { data = { raw }; }
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || `${t('server_error')}: ${res.status}`);
+      }
+      return data;
+    }
+
+    async function fetchGuardianData(){
+      try{
+        const res = await fetch('/api/data', { cache:'no-store' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || t('request_failed'));
+        setConnection(true);
+        updateUI(data);
+      }catch(err){
+        setConnection(false);
+        console.error(err);
+      }
+    }
+
+    function collectConfigPayload(){
+      const payload = {
+        ESP32_IP: el('esp32-ip-input').value.trim(),
+        TEMPERATURE_THRESHOLD: safeNum(el('temp-threshold-input').value, state.defaults.TEMPERATURE_THRESHOLD),
+        HUMIDITY_THRESHOLD: safeNum(el('humidity-threshold-input').value, state.defaults.HUMIDITY_THRESHOLD),
+        GAS_THRESHOLD: safeNum(el('gas-threshold-input').value, state.defaults.GAS_THRESHOLD),
+        WAKEWORD_SENSITIVITY: safeNum(el('wakeword-sensitivity-input').value, state.defaults.WAKEWORD_SENSITIVITY),
+        STT_LANGUAGE: el('stt-language-select').value,
+        TTS_VOICE_ID: el('tts-voice-id-input').value.trim(),
+        TTS_MODEL_PATH: el('tts-model-name-input').value.trim(),
+        AUDIO_INPUT_DEVICE_INDEX: el('audio-input-device-index-input').value === '' ? null : parseInt(el('audio-input-device-index-input').value, 10),
+        AUDIO_OUTPUT_DEVICE_INDEX: el('audio-output-device-index-input').value === '' ? null : parseInt(el('audio-output-device-index-input').value, 10),
+        SYSTEM_PROMPT: el('system-prompt-input').value.trim()
+      };
+
+      Object.keys(payload).forEach(key => {
+        if (payload[key] === '' || payload[key] === undefined) delete payload[key];
+      });
+
+      return payload;
+    }
+
+    function loadDefaultsToUI(){
+      el('esp32-ip-input').value = state.defaults.ESP32_IP || '';
+      el('temp-threshold-input').value = state.defaults.TEMPERATURE_THRESHOLD;
+      el('humidity-threshold-input').value = state.defaults.HUMIDITY_THRESHOLD;
+      el('gas-threshold-input').value = state.defaults.GAS_THRESHOLD;
+      el('wakeword-sensitivity-input').value = state.defaults.WAKEWORD_SENSITIVITY;
+      el('wakeword-sensitivity-value').textContent = Number(state.defaults.WAKEWORD_SENSITIVITY).toFixed(2);
+      el('stt-language-select').value = state.defaults.STT_LANGUAGE;
+      el('tts-voice-id-input').value = state.defaults.TTS_VOICE_ID || '';
+      el('tts-model-name-input').value = state.defaults.TTS_MODEL_PATH || '';
+      el('audio-input-device-index-input').value = state.defaults.AUDIO_INPUT_DEVICE_INDEX ?? '';
+      el('audio-output-device-index-input').value = state.defaults.AUDIO_OUTPUT_DEVICE_INDEX ?? '';
+      el('system-prompt-input').value = state.defaults.SYSTEM_PROMPT || '';
+    }
+
+    async function saveConfig(){
+      try{
+        const payload = collectConfigPayload();
+        const data = await postAction('/api/config', payload);
+        showToast(data.status || t('config_saved'), 'success');
+        await fetchGuardianData();
+      }catch(err){
+        showToast(err.message || t('network_error'), 'error');
+      }
+    }
+
+    async function doAction(endpoint, successType='success'){
+      try{
+        const data = await postAction(endpoint, {});
+        if (endpoint.includes('/alarm/mute')) state.localAlarmMuted = true;
+        if (endpoint.includes('/alarm/unmute')) state.localAlarmMuted = false;
+        showToast(data.status || t('action_done'), successType);
+        await fetchGuardianData();
+      }catch(err){
+        showToast(err.message || t('network_error'), 'error');
+      }
+    }
+
+    async function speakText(){
+      const text = el('tts-text-input').value.trim();
+      if (!text) {
+        showToast(t('empty_text'), 'warning');
+        return;
+      }
+      try{
+        const data = await postAction('/api/tts/speak', { text });
+        showToast(data.status || t('action_done'), 'success');
+        el('tts-text-input').value = '';
+        await fetchGuardianData();
+      }catch(err){
+        showToast(err.message || t('network_error'), 'error');
+      }
+    }
+
+    async function sendChat(){
+      const input = el('chat-input');
+      const command = input.value.trim();
+      if (!command) {
+        showToast(t('empty_text'), 'warning');
+        return;
+      }
+
+      addChatMessage(command, 'user');
+      input.value = '';
+      addChatMessage(t('sending'), 'system');
+
+      try{
+        const data = await postAction('/api/chat', { command });
+        const wrap = el('chat-output');
+        if (wrap.lastElementChild && wrap.lastElementChild.classList.contains('system')) {
+          wrap.lastElementChild.remove();
+        }
+        addChatMessage(data.response || t('no_response'), 'bot');
+        await fetchGuardianData();
+      }catch(err){
+        const wrap = el('chat-output');
+        if (wrap.lastElementChild && wrap.lastElementChild.classList.contains('system')) {
+          wrap.lastElementChild.remove();
+        }
+        addChatMessage(err.message || t('network_error'), 'system');
+      }
+    }
+
+    function bindEvents(){
+      el('lang-fa-btn').addEventListener('click', () => setLang('fa'));
+      el('lang-en-btn').addEventListener('click', () => setLang('en'));
+
+      el('guardian-start-btn').addEventListener('click', () => doAction('/api/guardian/start', 'success'));
+      el('guardian-stop-btn').addEventListener('click', () => doAction('/api/guardian/stop', 'warning'));
+
+      el('alarm-mute-btn').addEventListener('click', () => doAction('/api/alarm/mute', 'warning'));
+      el('alarm-unmute-btn').addEventListener('click', () => doAction('/api/alarm/unmute', 'success'));
+
+      el('stt-start-btn').addEventListener('click', () => doAction('/api/stt/start', 'success'));
+      el('stt-stop-btn').addEventListener('click', () => doAction('/api/stt/stop', 'warning'));
+
+      el('wakeword-enable-btn').addEventListener('click', () => doAction('/api/wakeword/enable', 'success'));
+      el('wakeword-disable-btn').addEventListener('click', () => doAction('/api/wakeword/disable', 'warning'));
+
+      el('tts-speak-btn').addEventListener('click', speakText);
+      el('chat-send-btn').addEventListener('click', sendChat);
+      el('save-config-btn').addEventListener('click', saveConfig);
+
+      el('load-config-btn').addEventListener('click', () => {
+        loadDefaultsToUI();
+        showToast(t('defaults_loaded'), 'info', 5000);
+      });
+
+      el('chat-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendChat();
+      });
+
+      el('tts-text-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') speakText();
+      });
+
+      el('wakeword-sensitivity-input').addEventListener('input', (e) => {
+        el('wakeword-sensitivity-value').textContent = Number(e.target.value).toFixed(2);
+      });
+    }
+
+    function init(){
+      bindEvents();
+      loadDefaultsToUI();
+      setLang(state.lang);
+      updateClock();
+      setInterval(updateClock, 1000);
+      fetchGuardianData();
+      setInterval(fetchGuardianData, state.pollingMs);
+      el('polling-indicator').textContent = `${state.pollingMs/1000}s`;
+    }
+
+    window.addEventListener('DOMContentLoaded', init);
+  </script>
+  <script src="/static/voice.js"></script>
+</body>
+</html>

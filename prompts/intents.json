@@ -1,0 +1,29 @@
+{
+  "intents": [
+    {
+      "name": "status",
+      "patterns": ["status", "وضعیت", "report", "گزارش"],
+      "action": "get_status"
+    },
+    {
+      "name": "temperature",
+      "patterns": ["temperature", "temp", "heat", "دما", "حرارت"],
+      "action": "get_temperature"
+    },
+    {
+      "name": "gas",
+      "patterns": ["gas", "mq9", "smoke", "leak", "گاز", "نشتی", "دود"],
+      "action": "get_gas"
+    },
+    {
+      "name": "mute_alarm",
+      "patterns": ["mute alarm", "stop alarm", "آلارم را خاموش کن", "هشدار را خاموش کن", "بی صدا"],
+      "action": "alarm_off"
+    },
+    {
+      "name": "unmute_alarm",
+      "patterns": ["unmute alarm", "start alarm", "آلارم را روشن کن", "هشدار را روشن کن"],
+      "action": "alarm_on"
+    }
+  ]
+}
