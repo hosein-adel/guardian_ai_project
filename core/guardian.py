@@ -212,12 +212,12 @@ class GuardianCore(threading.Thread):
             return "هشدار بررسی شد"
         return f"پیام دریافت شد: {text}"
 
-    def chat(self, text):
+    def chat(self, text, speak=True):
         if self.ai_chat is not None:
             try:
                 ctx = self.shared_state.current_data if hasattr(self.shared_state, "current_data") else {}
                 reply = self.ai_chat.chat(text, sensor_context=ctx)
-                if self.tts_engine:
+                if speak and self.tts_engine:
                     try:
                         self.tts_engine.speak(reply)
                     except Exception as e:
@@ -227,7 +227,7 @@ class GuardianCore(threading.Thread):
                 print(f"[GuardianCore.chat] AI chat failed: {e}")
 
         reply_text = "پاسخ Guardian آماده است."
-        if self.tts_engine:
+        if speak and self.tts_engine:
             try:
                 self.tts_engine.speak(reply_text)
             except Exception:

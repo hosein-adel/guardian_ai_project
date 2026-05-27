@@ -20,8 +20,12 @@
   }
 
   function addMicButton() {
-    const compose = document.querySelector(".chat-compose");
-    if (!compose) return;
+    const compose = document.getElementById("chat-compose");
+    if (!compose) {
+      console.warn("[voice.js] #chat-compose not found; microphone button was not added.");
+      return;
+    }
+    if (document.getElementById("mic-btn")) return;
 
     const btn = document.createElement("button");
     btn.id = "mic-btn";

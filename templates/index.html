@@ -792,7 +792,7 @@
             <div>
               <h2 data-i18n="sensors_title">نمایشگر سنسورها</h2>
               <div class="panel-subtitle" data-i18n="sensors_subtitle">
-                پایش زنده‌ی دما، رطوبت، گاز، شعله، درب و حرکت
+                پایش زنده‌ی دما، گاز MQ9، شعله، درب و حرکت
               </div>
             </div>
           </div>
@@ -841,26 +841,6 @@
             <div class="sensor-card">
               <div class="sensor-head">
                 <div>
-                  <h3 class="sensor-title" data-i18n="humidity">رطوبت</h3>
-                  <p class="sensor-caption" data-i18n="humidity_desc">نمایش درصد رطوبت محیط</p>
-                </div>
-                <div class="sensor-icon">💧</div>
-              </div>
-              <div class="sensor-value">
-                <span class="value" id="humidity-value">--</span>
-                <span class="unit">%</span>
-              </div>
-              <div class="status-row">
-                <div class="mini-badge info">
-                  <span data-i18n="status">وضعیت</span>
-                  <strong id="humidity-state">--</strong>
-                </div>
-              </div>
-            </div>
-
-            <div class="sensor-card">
-              <div class="sensor-head">
-                <div>
                   <h3 class="sensor-title" data-i18n="gas">گاز MQ9</h3>
                   <p class="sensor-caption" data-i18n="gas_desc">پایش غلظت گاز و بخارات قابل اشتعال</p>
                 </div>
@@ -868,7 +848,7 @@
               </div>
               <div class="sensor-value">
                 <span class="value" id="mq9-value">--</span>
-                <span class="unit">ppm</span>
+                <span class="unit">ADC</span>
               </div>
               <div class="status-row">
                 <div class="mini-badge info">
@@ -1033,11 +1013,6 @@
             </div>
 
             <div class="field">
-              <label for="humidity-threshold-input" data-i18n="humidity_threshold">آستانه رطوبت</label>
-              <input id="humidity-threshold-input" type="number" step="0.1" value="70" />
-            </div>
-
-            <div class="field">
               <label for="tts-voice-id-input">TTS Voice ID</label>
               <input id="tts-voice-id-input" type="text" placeholder="default" />
             </div>
@@ -1096,7 +1071,7 @@
               </div>
             </div>
 
-            <div class="chat-compose">
+            <div id="chat-compose" class="chat-compose">
               <input id="chat-input" type="text" data-i18n-placeholder="chat_placeholder" placeholder="دستور یا پیام خود را بنویسید..." />
               <button id="chat-send-btn" class="btn" type="button" data-i18n="send">ارسال</button>
             </div>
@@ -1152,7 +1127,6 @@
       defaults: {
         ESP32_IP: '',
         TEMPERATURE_THRESHOLD: 50,
-        HUMIDITY_THRESHOLD: 70,
         GAS_THRESHOLD: 400,
         WAKEWORD_SENSITIVITY: 0.5,
         STT_LANGUAGE: 'fa',
@@ -1174,7 +1148,7 @@
         time_label: 'زمان محلی',
         language_label: 'زبان رابط کاربری',
         sensors_title: 'نمایشگر سنسورها',
-        sensors_subtitle: 'پایش زنده‌ی دما، رطوبت، گاز، شعله، درب و حرکت',
+        sensors_subtitle: 'پایش زنده‌ی دما، گاز MQ9، شعله، درب و حرکت',
         controls_title: 'کنترل‌ها',
         controls_subtitle: 'مدیریت Guardian، آلارم، دستیار صوتی و موتور Wakeword',
         config_title: 'پیکربندی سیستم',
@@ -1185,8 +1159,6 @@
         system_snapshot_desc: 'خلاصه‌ی بلادرنگ از وضعیت عملکرد اجزای اصلی',
         temperature: 'دما',
         temperature_desc: 'نمایش آنالوگ و عددی دمای محیط',
-        humidity: 'رطوبت',
-        humidity_desc: 'نمایش درصد رطوبت محیط',
         gas: 'گاز MQ9',
         gas_desc: 'پایش غلظت گاز و بخارات قابل اشتعال',
         flame: 'شعله',
@@ -1225,7 +1197,6 @@
         stt_language: 'زبان STT',
         temp_threshold: 'آستانه دما',
         gas_threshold: 'آستانه گاز',
-        humidity_threshold: 'آستانه رطوبت',
         wakeword_sensitivity: 'حساسیت Wakeword',
         save_config: 'ذخیره تنظیمات',
         load_config: 'بارگذاری تنظیمات',
@@ -1265,7 +1236,7 @@
         quick_guardian_off: 'Guardian غیرفعال است.',
         quick_voice: 'STT: {stt} | TTS: {tts} | Wakeword: {wake}',
         quick_alarm: 'Alarm: {alarm} | Mute: {mute}',
-        quick_env: 'Temp: {temp}°C | Hum: {hum}% | Gas: {gas} ppm',
+        quick_env: 'دما: {temp}°C | گاز: {gas}',
         server_error: 'خطای سرور',
         unknown: 'نامشخص'
       },
@@ -1278,7 +1249,7 @@
         time_label: 'Local Time',
         language_label: 'Interface Language',
         sensors_title: 'Sensors Overview',
-        sensors_subtitle: 'Live monitoring of temperature, humidity, gas, flame, door, and motion',
+        sensors_subtitle: 'Live monitoring of temperature, MQ9 gas, flame, door, and motion',
         controls_title: 'Controls',
         controls_subtitle: 'Manage Guardian, alarm, voice assistant, and wakeword engine',
         config_title: 'System Configuration',
@@ -1289,8 +1260,6 @@
         system_snapshot_desc: 'Real-time summary of main components status',
         temperature: 'Temperature',
         temperature_desc: 'Analog and digital environment temperature display',
-        humidity: 'Humidity',
-        humidity_desc: 'Ambient humidity percentage',
         gas: 'MQ9 Gas',
         gas_desc: 'Gas and flammable vapor concentration monitoring',
         flame: 'Flame',
@@ -1329,7 +1298,6 @@
         stt_language: 'STT Language',
         temp_threshold: 'Temperature Threshold',
         gas_threshold: 'Gas Threshold',
-        humidity_threshold: 'Humidity Threshold',
         wakeword_sensitivity: 'Wakeword Sensitivity',
         save_config: 'Save Config',
         load_config: 'Load Config',
@@ -1369,7 +1337,7 @@
         quick_guardian_off: 'Guardian is inactive.',
         quick_voice: 'STT: {stt} | TTS: {tts} | Wakeword: {wake}',
         quick_alarm: 'Alarm: {alarm} | Mute: {mute}',
-        quick_env: 'Temp: {temp}°C | Hum: {hum}% | Gas: {gas} ppm',
+        quick_env: 'Temp: {temp}°C | Gas ADC: {gas}',
         server_error: 'Server error',
         unknown: 'Unknown'
       }
@@ -1438,6 +1406,16 @@
       return value === true || value === 1 || value === '1' || value === 'true' || value === 'True';
     }
 
+    function getGasValue(data){
+      // Prefer the numeric MQ9 reading. `data.gas` may be boolean for leak status compatibility.
+      const candidates = [data.mq9, data.gas_value, data.gas_raw, data.raw && data.raw.mq9];
+      for (const value of candidates) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+      }
+      return 0;
+    }
+
     function setConnection(online){
       const dot = el('connection-dot');
       const status = el('connection-status');
@@ -1464,13 +1442,6 @@
       const threshold = safeNum(el('temp-threshold-input').value || state.defaults.TEMPERATURE_THRESHOLD, 50);
       if (temp >= threshold) return { text: t('danger'), cls: 'alert' };
       if (temp >= threshold * 0.8) return { text: t('high'), cls: 'warn' };
-      return { text: t('normal'), cls: 'ok' };
-    }
-
-    function classifyHumidity(hum){
-      hum = safeNum(hum, 0);
-      const threshold = safeNum(el('humidity-threshold-input').value || state.defaults.HUMIDITY_THRESHOLD, 70);
-      if (hum >= threshold) return { text: t('high'), cls: 'warn' };
       return { text: t('normal'), cls: 'ok' };
     }
 
@@ -1501,7 +1472,8 @@
       const sttOn = boolish(data.stt_active);
       const ttsOn = boolish(data.tts_active);
       const wakeOn = boolish(data.wakeword_active);
-      const muted = state.localAlarmMuted === null ? t('unknown') : (state.localAlarmMuted ? t('muted') : t('unmuted'));
+      const mutedState = data.alarm_muted !== undefined ? boolish(data.alarm_muted) : state.localAlarmMuted;
+      const muted = mutedState === null ? t('unknown') : (mutedState ? t('muted') : t('unmuted'));
 
       el('guardian-quick-text').textContent = guardianOn ? t('quick_guardian_on') : t('quick_guardian_off');
       el('voice-quick-text').textContent = formatText(t('quick_voice'), {
@@ -1515,8 +1487,7 @@
       });
       el('environment-quick-text').textContent = formatText(t('quick_env'), {
         temp: safeText(data.temperature, '--'),
-        hum: safeText(data.humidity, '--'),
-        gas: safeText(data.gas, '--')
+        gas: safeText(getGasValue(data), '--')
       });
     }
 
@@ -1524,8 +1495,7 @@
       state.lastData = data;
 
       const temp = safeNum(data.temperature, 0);
-      const hum = safeNum(data.humidity, 0);
-      const gas = safeNum(data.gas, 0);
+      const gas = getGasValue(data);
 
       el('temperature-value').textContent = temp.toFixed(1);
       el('temperature-digital').textContent = temp.toFixed(1);
@@ -1533,11 +1503,6 @@
       const tempState = classifyTemperature(temp);
       el('temperature-state').textContent = tempState.text;
       applyBadgeClass('temperature-state', tempState.cls);
-
-      el('humidity-value').textContent = hum.toFixed(1);
-      const humState = classifyHumidity(hum);
-      el('humidity-state').textContent = humState.text;
-      applyBadgeClass('humidity-state', humState.cls);
 
       el('mq9-value').textContent = gas.toFixed(1);
       const gasState = classifyGas(gas);
@@ -1554,6 +1519,9 @@
       setPill('tts-status-pill', boolish(data.tts_active), t('active'), t('inactive'));
       setPill('wakeword-status-pill', boolish(data.wakeword_active), t('enabled'), t('disabled'));
 
+      if (data.alarm_muted !== undefined) {
+        state.localAlarmMuted = boolish(data.alarm_muted);
+      }
       if (state.localAlarmMuted === null) {
         el('alarm-muted-status-pill').textContent = t('unknown');
       } else {
@@ -1610,7 +1578,8 @@
         const res = await fetch('/api/data', { cache:'no-store' });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || t('request_failed'));
-        setConnection(true);
+        const espOnline = data.online !== undefined ? boolish(data.online) : boolish(data.esp32_connected);
+        setConnection(espOnline);
         updateUI(data);
       }catch(err){
         setConnection(false);
@@ -1622,7 +1591,6 @@
       const payload = {
         ESP32_IP: el('esp32-ip-input').value.trim(),
         TEMPERATURE_THRESHOLD: safeNum(el('temp-threshold-input').value, state.defaults.TEMPERATURE_THRESHOLD),
-        HUMIDITY_THRESHOLD: safeNum(el('humidity-threshold-input').value, state.defaults.HUMIDITY_THRESHOLD),
         GAS_THRESHOLD: safeNum(el('gas-threshold-input').value, state.defaults.GAS_THRESHOLD),
         WAKEWORD_SENSITIVITY: safeNum(el('wakeword-sensitivity-input').value, state.defaults.WAKEWORD_SENSITIVITY),
         STT_LANGUAGE: el('stt-language-select').value,
@@ -1643,7 +1611,6 @@
     function loadDefaultsToUI(){
       el('esp32-ip-input').value = state.defaults.ESP32_IP || '';
       el('temp-threshold-input').value = state.defaults.TEMPERATURE_THRESHOLD;
-      el('humidity-threshold-input').value = state.defaults.HUMIDITY_THRESHOLD;
       el('gas-threshold-input').value = state.defaults.GAS_THRESHOLD;
       el('wakeword-sensitivity-input').value = state.defaults.WAKEWORD_SENSITIVITY;
       el('wakeword-sensitivity-value').textContent = Number(state.defaults.WAKEWORD_SENSITIVITY).toFixed(2);

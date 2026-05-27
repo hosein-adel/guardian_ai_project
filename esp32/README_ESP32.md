@@ -45,7 +45,6 @@ WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"
 {
   "mq9": 150,
   "temperature": 24.5,
-  "humidity": 0,
   "gas_leak": false,
   "motion": false,
   "door_open": false,
@@ -83,6 +82,5 @@ WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"
 ## ⚠️ نکات
 
 - DS18B20 اختیاری است. اگر متصل نباشد، دما `0` برمی‌گردد.
-- سنسور رطوبت در این نسخه پشتیبانی نمی‌شود (`humidity = 0`).
 - فایل `config.json` روی SPIFFS ذخیره می‌شود و در ریبوت‌ها حفظ می‌شود.
 - ماژول شعله (Flame) معمولاً در تشخیص شعله **LOW** می‌شود.

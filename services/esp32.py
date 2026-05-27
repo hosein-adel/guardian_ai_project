@@ -1,5 +1,6 @@
 import requests
 import json
+import time
 
 
 class ESP32Client:
@@ -24,6 +25,9 @@ class ESP32Client:
 
         self.port = port
         self.timeout = timeout
+        self.error_log_interval = 30
+        self._last_error_log = {}
+        self._last_online = None
 
         esp32_ip = str(esp32_ip).strip()
 
@@ -34,6 +38,22 @@ class ESP32Client:
             self.base_url = f"http://{esp32_ip}:{self.port}"
 
         print(f"[ESP32Client] Base URL: {self.base_url}")
+
+    def _log_issue(self, key, message):
+        """Throttle repeated offline/error messages so dashboard polling does not spam logs."""
+        now = time.time()
+        last = self._last_error_log.get(key, 0)
+        if now - last >= self.error_log_interval:
+            print(message)
+            self._last_error_log[key] = now
+
+    def _mark_online(self):
+        if self._last_online is False:
+            print(f"[ESP32Client] ESP32 connection restored: {self.base_url}")
+        self._last_online = True
+
+    def _mark_offline(self):
+        self._last_online = False
 
     def is_online(self):
         """
@@ -47,10 +67,16 @@ class ESP32Client:
                 timeout=self.timeout
             )
 
-            return response.status_code == 200
+            online = response.status_code == 200
+            if online:
+                self._mark_online()
+            else:
+                self._mark_offline()
+            return online
 
         except requests.exceptions.RequestException as e:
-            print(f"[ESP32Client] ESP32 is offline or unreachable: {e}")
+            self._mark_offline()
+            self._log_issue("is_online", f"[ESP32Client] ESP32 is offline or unreachable: {e}")
             return False
 
     def get_sensor_data(self):
@@ -64,7 +90,6 @@ class ESP32Client:
         {
             "mq9": ...,
             "temperature": ...,
-            "humidity": ...,
             "gas_leak": ...,
             "motion": ...,
             "door_open": ...
@@ -85,7 +110,6 @@ class ESP32Client:
                 # فیلدهای اصلی ESP32
                 "mq9": data.get("mq9", 0),
                 "temperature": data.get("temperature", 0),
-                "humidity": data.get("humidity", 0),
                 "gas_leak": data.get("gas_leak", 0),
                 "motion": data.get("motion", 0),
                 "door_open": data.get("door_open", 0),
@@ -105,27 +129,33 @@ class ESP32Client:
 
             # اگر ESP32 فیلدهای اضافه‌ای هم فرستاد، حذف نشوند
             normalized_data.update(data)
+            self._mark_online()
 
             return normalized_data
 
         except requests.exceptions.Timeout:
-            print(f"[ESP32Client] Timeout while requesting: {url}")
+            self._mark_offline()
+            self._log_issue("timeout", f"[ESP32Client] Timeout while requesting: {url}")
             return self._offline_data("timeout")
 
         except requests.exceptions.ConnectionError:
-            print(f"[ESP32Client] Connection error. Cannot reach ESP32 at: {url}")
+            self._mark_offline()
+            self._log_issue("connection_error", f"[ESP32Client] Connection error. Cannot reach ESP32 at: {url}")
             return self._offline_data("connection_error")
 
         except requests.exceptions.HTTPError as e:
-            print(f"[ESP32Client] HTTP error from ESP32: {e}")
+            self._mark_offline()
+            self._log_issue("http_error", f"[ESP32Client] HTTP error from ESP32: {e}")
             return self._offline_data("http_error")
 
         except json.JSONDecodeError:
-            print(f"[ESP32Client] Invalid JSON received from ESP32: {url}")
+            self._mark_offline()
+            self._log_issue("invalid_json", f"[ESP32Client] Invalid JSON received from ESP32: {url}")
             return self._offline_data("invalid_json")
 
         except Exception as e:
-            print(f"[ESP32Client] Unexpected error: {e}")
+            self._mark_offline()
+            self._log_issue("unknown_error", f"[ESP32Client] Unexpected error: {e}")
             return self._offline_data("unknown_error")
 
 
@@ -165,7 +195,8 @@ class ESP32Client:
                 }
 
         except requests.exceptions.RequestException as e:
-            print(f"[ESP32Client] Error sending config to ESP32: {e}")
+            self._mark_offline()
+            self._log_issue("send_config", f"[ESP32Client] Error sending config to ESP32: {e}")
             return {
                 "success": False,
                 "error": str(e)
@@ -180,7 +211,6 @@ class ESP32Client:
         return {
             "mq9": 0,
             "temperature": 0,
-            "humidity": 0,
             "gas_leak": 0,
             "motion": 0,
             "door_open": 0,

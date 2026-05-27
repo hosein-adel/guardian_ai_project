@@ -82,3 +82,35 @@ def test_dummy_tts():
 def test_fallback_dummy_tts():
     d = _FallbackDummyTTS()
     d.speak("hello")  # should not raise
+
+
+def test_guardian_chat_can_disable_tts(fake_config, fake_shared_state):
+    svc = AlertService(fake_shared_state)
+
+    class FakeAIChat:
+        def chat(self, text, sensor_context=None):
+            return "پاسخ تستی"
+
+    class FakeTTS:
+        def __init__(self):
+            self.calls = []
+
+        def speak(self, text):
+            self.calls.append(text)
+
+    tts = FakeTTS()
+    core = GuardianCore(
+        config=fake_config,
+        shared_state=fake_shared_state,
+        alert_service=svc,
+        tts_engine=tts,
+        ai_chat=FakeAIChat(),
+    )
+
+    reply = core.chat("سلام", speak=False)
+    assert reply == "پاسخ تستی"
+    assert tts.calls == []
+
+    reply = core.chat("سلام", speak=True)
+    assert reply == "پاسخ تستی"
+    assert tts.calls == ["پاسخ تستی"]

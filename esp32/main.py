@@ -429,7 +429,6 @@ def read_sensors():
     data = {
         "mq9"            : mq9_val,
         "temperature"    : temp_val if temp_val is not None else 0,
-        "humidity"       : 0,
         "gas_leak"       : mq9_val >= config.get(
                                "gas_threshold",
                                DEFAULT_CONFIG["gas_threshold"]),
