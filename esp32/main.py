@@ -1,946 +1,854 @@
 # ================================================================
-#  Guardian AI — ESP32 WROOM — MicroPython
-#  نسخه 3.0 — بهینه‌شده با پین‌های اصلی پروژه
-# ================================================================
-#
-#  پین‌های اصلی (دست نخورده از کد اولیه):
-#  ┌──────────────────────────────────────────────────────┐
-#  │  MQ9  Gas    AO  → GPIO34  (ADC1 — امن با WiFi) ✅  │
-#  │  Flame IR    OUT → GPIO27  (Digital — Active LOW) ✅ │
-#  │  PIR  Motion OUT → GPIO26  (Digital — Active HIGH)✅ │
-#  │  Door Reed   SIG → GPIO25  (PULL_UP — LOW=بسته)  ✅ │
-#  │  DS18B20     DQ  → GPIO4   (OneWire — 4.7kΩ PU) ✅  │
-#  └──────────────────────────────────────────────────────┘
-#
-#  بهبودهای نسخه 3.0:
-#  ✅ سیستم لاگ کامل با سطح‌بندی
-#  ✅ PULL_DOWN برای PIR (رفع مشکل Floating)
-#  ✅ Debounce + تأیید چندگانه برای PIR
-#  ✅ فیلتر نور محیط برای Flame
-#  ✅ Warm-up برای MQ9
-#  ✅ Thread پس‌زمینه برای خواندن مداوم سنسورها
-#  ✅ Endpoint های /diag /logs /history
-#  ✅ get_ip() ایمن
+#  Guardian AI — ESP32 WROOM — MicroPython v5.0
 # ================================================================
 
-import network
-import time
-import ujson as json
-import os
-import sys
+import network, time, ujson as json, os, sys
 from machine import Pin, ADC
 
 # ================================================================
-#  سیستم لاگ
+#  پین‌ها
 # ================================================================
+MQ9_PIN     = 34
+FLAME_PIN   = 27
+PIR_PIN     = 26
+DOOR_PIN    = 25
+DS18B20_PIN = 4
 
-LOG_DEBUG    = 0
-LOG_INFO     = 1
-LOG_WARNING  = 2
-LOG_ERROR    = 3
-LOG_CRITICAL = 4
-
-_LOG_NAMES = {
-    LOG_DEBUG:   "DEBUG   ",
-    LOG_INFO:    "INFO    ",
-    LOG_WARNING: "WARNING ",
-    LOG_ERROR:   "ERROR   ",
-    LOG_CRITICAL:"CRITICAL",
+DEFAULT_CONFIG = {
+    "gas_threshold" : 2000,
+    "temp_threshold": 50,
+    "flame_enabled" : True,
+    "motion_enabled": True,
+    "door_enabled"  : True,
+    "device_name"   : "Guardian ESP32",
+    "read_interval" : 2
 }
-
-# سطح نمایش لاگ — برای production روی LOG_INFO بگذار
-LOG_LEVEL = LOG_DEBUG
-
-log_history  = []
-MAX_LOG_HIST = 60
-
-
-def log(level, module, msg):
-    if level < LOG_LEVEL:
-        return
-    ts   = time.time()
-    name = _LOG_NAMES.get(level, "UNKNOWN ")
-    line = "[{:>10}] {} [{:<8}] {}".format(ts, name, module, msg)
-    print(line)
-    log_history.append({"ts": ts, "level": name.strip(),
-                         "module": module, "msg": msg})
-    if len(log_history) > MAX_LOG_HIST:
-        log_history.pop(0)
-
-
-def log_sep(title=""):
-    n   = 54
-    sep = "=== {} {}".format(title, "=" * max(0, n - len(title) - 5)) \
-          if title else "=" * n
-    print(sep)
-
-
-# ================================================================
-#  WiFi Config  ← دست نخورده از کد اصلی
-# ================================================================
+CONFIG_FILE = "config.json"
 
 WIFI_SSID     = "Honor 8A"
 WIFI_PASSWORD = "alialialiali"
-WIFI_TIMEOUT  = 20
 
 # ================================================================
-#  Pin Config   ← دقیقاً همان کد اصلی شما
+#  سیستم لاگ جداگانه برای هر سنسور
 # ================================================================
+# هر سنسور یک buffer مجزا دارد
+# سنسورهای سالم فقط WARNING/ERROR لاگ می‌دهند
+# سنسورهای مشکل‌دار (PIR/Flame) لاگ DEBUG هم دارند
 
-MQ9_PIN     = 34   # Analog  — ADC1_CH6
-FLAME_PIN   = 27   # Digital — Active LOW
-PIR_PIN     = 26   # Digital — Active HIGH  ← GPIO26 با PULL_DOWN fix شد
-DOOR_PIN    = 25   # Digital — PULL_UP
-DS18B20_PIN = 4    # OneWire ← همان GPIO4 که دما درست کار می‌کرد ✅
+SENSOR_LOGS = {
+    "MQ9"    : [],
+    "FLAME"  : [],
+    "PIR"    : [],
+    "DOOR"   : [],
+    "DS18B20": [],
+    "SYSTEM" : [],
+}
+MAX_PER_SENSOR = 40
 
-# ================================================================
-#  App Config   ← دست نخورده از کد اصلی + read_interval جدید
-# ================================================================
-
-DEFAULT_CONFIG = {
-    "gas_threshold"  : 2000,
-    "temp_threshold" : 50,
-    "flame_enabled"  : True,
-    "motion_enabled" : True,
-    "door_enabled"   : True,
-    "device_name"    : "Guardian ESP32",
-    "read_interval"  : 2        # ثانیه — فاصله خواندن سنسورها در Thread
+# سطح لاگ هر سنسور — سنسورهای سالم روی WARNING
+SENSOR_LOG_LEVEL = {
+    "MQ9"    : "WARNING",   # سالم است — فقط هشدار
+    "FLAME"  : "DEBUG",     # مشکل‌دار — همه چیز
+    "PIR"    : "DEBUG",     # مشکل‌دار — همه چیز
+    "DOOR"   : "WARNING",   # سالم است — فقط هشدار
+    "DS18B20": "WARNING",   # سالم است — فقط هشدار
+    "SYSTEM" : "INFO",
 }
 
-CONFIG_FILE = "config.json"
+LEVELS = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3}
+
+
+def slog(sensor, level, msg):
+    """
+    لاگ جداگانه برای هر سنسور
+    sensor : کلید SENSOR_LOGS
+    level  : DEBUG / INFO / WARNING / ERROR
+    msg    : متن
+    """
+    min_level = LEVELS.get(
+        SENSOR_LOG_LEVEL.get(sensor, "INFO"), 1)
+    if LEVELS.get(level, 0) < min_level:
+        return
+
+    ts  = time.time()
+    rec = {"ts": ts, "lvl": level, "msg": msg}
+
+    buf = SENSOR_LOGS.get(sensor)
+    if buf is not None:
+        buf.append(rec)
+        if len(buf) > MAX_PER_SENSOR:
+            buf.pop(0)
+
+    # کنسول فقط WARNING به بالا یا DEBUG برای PIR/Flame
+    print("[{}][{:<8}][{}] {}".format(ts, sensor, level, msg))
+
 
 # ================================================================
 #  State
 # ================================================================
-
 config           = {}
 last_data        = {}
 alarm_history    = []
 last_alarm_state = False
 wlan             = None
+_mq9_warmup_done = False
 
 # ================================================================
-#  Hardware Init
+#  سخت‌افزار
 # ================================================================
+slog("SYSTEM", "INFO", "=== راه‌اندازی سخت‌افزار ===")
 
-log_sep("HARDWARE INIT")
-log(LOG_INFO, "HW_INIT", "شروع راه‌اندازی سخت‌افزار...")
-
-# ── MQ9 (GPIO34 = ADC1 — همیشه امن با WiFi) ──────────────────
+# MQ9
 mq9_adc = None
 try:
     mq9_adc = ADC(Pin(MQ9_PIN))
-    mq9_adc.atten(ADC.ATTN_11DB)    # محدوده 0-3.6V
-    # width() در MicroPython 1.19+ حذف شده — با try/except مدیریت می‌شود
-    try:
-        mq9_adc.width(ADC.WIDTH_12BIT)
-        log(LOG_INFO, "MQ9", "GPIO{} | ATTN_11DB | WIDTH_12BIT".format(MQ9_PIN))
-    except Exception:
-        # نسخه جدید MicroPython به‌صورت پیش‌فرض 12bit است
-        log(LOG_INFO, "MQ9", "GPIO{} | ATTN_11DB | 12bit (auto)".format(MQ9_PIN))
+    mq9_adc.atten(ADC.ATTN_11DB)
+    try:    mq9_adc.width(ADC.WIDTH_12BIT)
+    except: pass
+    slog("MQ9", "INFO", "GPIO{} آماده".format(MQ9_PIN))
 except Exception as e:
-    log(LOG_CRITICAL, "MQ9", "خطای ADC init: {} → گاز غیرفعال!".format(e))
+    slog("MQ9", "ERROR", "init خطا: {}".format(e))
 
-# ── Flame (GPIO27 — ماژول Pull داخلی دارد) ──────────────────
+# Flame
 flame_pin = None
 try:
-    # GPIO27 پین معمولی است (نه Input-Only) → می‌توان Pull گذاشت
-    # اما ماژول‌های Flame معمولاً Pull-up داخلی روی DO دارند
-    # بنابراین Pin.IN ساده کافی است
     flame_pin = Pin(FLAME_PIN, Pin.IN)
-    log(LOG_INFO, "FLAME",
-        "GPIO{} | Active LOW | فیلتر نور: {} سیکل".format(
-            FLAME_PIN, 3))
+    slog("FLAME", "INFO",
+         "GPIO{} | Active LOW | Hysteresis".format(FLAME_PIN))
 except Exception as e:
-    log(LOG_CRITICAL, "FLAME", "خطای init: {} → شعله غیرفعال!".format(e))
+    slog("FLAME", "ERROR", "init خطا: {}".format(e))
 
-# ── PIR (GPIO26 — FIX: اضافه کردن PULL_DOWN) ─────────────────
+# PIR
 pir_pin = None
 try:
-    # ❌ کد اصلی: Pin(PIR_PIN, Pin.IN)  ← Floating!
-    # ✅ کد جدید: PULL_DOWN اضافه شد تا پین در حالت بدون سیگنال LOW بماند
     pir_pin = Pin(PIR_PIN, Pin.IN, Pin.PULL_DOWN)
-    log(LOG_INFO, "PIR",
-        "GPIO{} | PULL_DOWN | Active HIGH | Debounce فعال".format(PIR_PIN))
-    log(LOG_WARNING, "PIR",
-        "⏳ PIR نیاز به 30-60 ثانیه Calibration دارد پس از تغذیه!")
+    slog("PIR", "INFO",
+         "GPIO{} | PULL_DOWN | H-mode".format(PIR_PIN))
 except Exception as e:
-    log(LOG_CRITICAL, "PIR", "خطای init: {} → حرکت غیرفعال!".format(e))
+    slog("PIR", "ERROR", "init خطا: {}".format(e))
 
-# ── Door (GPIO25 — PULL_UP — همان کد اصلی) ───────────────────
+# Door
 door_pin = None
 try:
     door_pin = Pin(DOOR_PIN, Pin.IN, Pin.PULL_UP)
-    log(LOG_INFO, "DOOR",
-        "GPIO{} | PULL_UP | LOW=بسته / HIGH=باز".format(DOOR_PIN))
+    slog("DOOR", "INFO", "GPIO{} | PULL_UP".format(DOOR_PIN))
 except Exception as e:
-    log(LOG_CRITICAL, "DOOR", "خطای init: {} → درب غیرفعال!".format(e))
+    slog("DOOR", "ERROR", "init خطا: {}".format(e))
 
-# ── DS18B20 (GPIO4 — همان کد اصلی که درست کار می‌کرد) ────────
+# DS18B20
 DS18B20_AVAILABLE = False
 ds_sensor = None
 ds_roms   = []
-
 try:
-    import onewire
-    import ds18x20
-    log(LOG_INFO, "DS18B20", "کتابخانه‌ها لود شدند ✅")
-    try:
-        ow        = onewire.OneWire(Pin(DS18B20_PIN))
-        ds_sensor = ds18x20.DS18X20(ow)
-        log(LOG_INFO, "DS18B20",
-            "OneWire روی GPIO{} | اسکن...".format(DS18B20_PIN))
-        ds_roms = ds_sensor.scan()
-        if ds_roms:
-            DS18B20_AVAILABLE = True
-            log(LOG_INFO, "DS18B20",
-                "{} سنسور | ROM={}".format(len(ds_roms), ds_roms[0]))
-        else:
-            log(LOG_ERROR, "DS18B20",
-                "سنسوری یافت نشد! مقاومت 4.7kΩ بین DQ و 3.3V را بررسی کنید")
-    except Exception as e:
-        log(LOG_ERROR, "DS18B20", "خطای OneWire: {}".format(e))
-except ImportError:
-    log(LOG_WARNING, "DS18B20", "کتابخانه onewire یافت نشد")
+    import onewire, ds18x20
+    ow        = onewire.OneWire(Pin(DS18B20_PIN))
+    ds_sensor = ds18x20.DS18X20(ow)
+    ds_roms   = ds_sensor.scan()
+    if ds_roms:
+        DS18B20_AVAILABLE = True
+        slog("DS18B20", "INFO",
+             "GPIO{} | {} سنسور".format(DS18B20_PIN, len(ds_roms)))
+    else:
+        slog("DS18B20", "ERROR",
+             "سنسوری پیدا نشد! مقاومت 4.7kΩ را بررسی کن")
+except Exception as e:
+    slog("DS18B20", "ERROR", "init خطا: {}".format(e))
 
-log_sep("HW INIT DONE")
-
+slog("SYSTEM", "INFO", "=== سخت‌افزار آماده ===")
 
 # ================================================================
-#  Config Management  ← منطق همان کد اصلی + لاگ
+#  Config
 # ================================================================
-
 def load_config():
     global config
-    log(LOG_INFO, "CONFIG", "بارگذاری تنظیمات...")
     try:
         if CONFIG_FILE in os.listdir():
             with open(CONFIG_FILE, "r") as f:
                 config = json.load(f)
-            log(LOG_INFO, "CONFIG", "فایل {} لود شد".format(CONFIG_FILE))
         else:
             config = DEFAULT_CONFIG.copy()
             save_config()
-            log(LOG_INFO, "CONFIG", "فایل یافت نشد — پیش‌فرض استفاده شد")
-    except Exception as e:
+    except Exception:
         config = DEFAULT_CONFIG.copy()
-        log(LOG_ERROR, "CONFIG", "خطای خواندن: {} → پیش‌فرض".format(e))
-
-    added = []
-    for key in DEFAULT_CONFIG:
-        if key not in config:
-            config[key] = DEFAULT_CONFIG[key]
-            added.append(key)
-    if added:
-        log(LOG_WARNING, "CONFIG", "کلیدهای جدید: {}".format(added))
-        save_config()
-
-    log(LOG_DEBUG, "CONFIG", "تنظیمات: {}".format(config))
-
+    for k in DEFAULT_CONFIG:
+        if k not in config:
+            config[k] = DEFAULT_CONFIG[k]
+    slog("SYSTEM", "INFO", "Config: {}".format(config))
 
 def save_config():
     try:
         with open(CONFIG_FILE, "w") as f:
             json.dump(config, f)
-        log(LOG_DEBUG, "CONFIG", "ذخیره شد")
     except Exception as e:
-        log(LOG_ERROR, "CONFIG", "خطای ذخیره: {}".format(e))
-
+        slog("SYSTEM", "ERROR", "save config: {}".format(e))
 
 # ================================================================
-#  WiFi  ← منطق همان کد اصلی + لاگ
+#  WiFi
 # ================================================================
-
 def connect_wifi():
     global wlan
-    log_sep("WIFI")
-    log(LOG_INFO, "WIFI", "اتصال به: {}".format(WIFI_SSID))
+    slog("SYSTEM", "INFO", "WiFi: {}".format(WIFI_SSID))
     try:
         wlan = network.WLAN(network.STA_IF)
         wlan.active(True)
         time.sleep(0.5)
-
         if wlan.isconnected():
-            log(LOG_INFO, "WIFI",
-                "از قبل متصل | IP: {}".format(wlan.ifconfig()[0]))
+            slog("SYSTEM", "INFO",
+                 "قبلاً متصل | IP={}".format(wlan.ifconfig()[0]))
             return wlan
-
         wlan.connect(WIFI_SSID, WIFI_PASSWORD)
-
-        for i in range(WIFI_TIMEOUT):
-            if wlan.isconnected():
-                break
-            log(LOG_DEBUG, "WIFI", "تلاش {}/{}...".format(i + 1, WIFI_TIMEOUT))
+        for i in range(20):
+            if wlan.isconnected(): break
             time.sleep(1)
-
         if wlan.isconnected():
-            cfg = wlan.ifconfig()
-            log(LOG_INFO, "WIFI", "متصل شد ✅ | IP={} | GW={}".format(
-                cfg[0], cfg[2]))
+            slog("SYSTEM", "INFO",
+                 "متصل ✅ IP={}".format(wlan.ifconfig()[0]))
         else:
-            log(LOG_ERROR, "WIFI", "اتصال ناموفق! SSID یا رمز را بررسی کنید")
-
+            slog("SYSTEM", "ERROR", "WiFi ناموفق!")
     except Exception as e:
-        log(LOG_CRITICAL, "WIFI", "خطا: {}".format(e))
-
+        slog("SYSTEM", "ERROR", "WiFi: {}".format(e))
     return wlan
-
 
 def get_ip():
     try:
         if wlan and wlan.isconnected():
             return wlan.ifconfig()[0]
-    except Exception:
-        pass
+    except: pass
     return "0.0.0.0"
 
-
 # ================================================================
-#  Sensor Readers
+#  سنسور: MQ9
+#  سالم است — فقط بالای آستانه لاگ می‌دهد
 # ================================================================
+MQ9_WARMUP_SEC = 30
 
 def read_mq9():
-    """
-    GPIO34 | ADC1_CH6 | ATTN_11DB | Range: 0-4095
-    بدون گاز: ~500-800 | با گاز: >2000
-    """
     if mq9_adc is None:
-        log(LOG_ERROR, "MQ9", "ADC آماده نیست!")
+        slog("MQ9", "ERROR", "ADC آماده نیست")
         return 0
     try:
-        raw     = mq9_adc.read()
-        voltage = round(raw * 3.6 / 4095, 3)
-        thr     = config.get("gas_threshold", DEFAULT_CONFIG["gas_threshold"])
-        log(LOG_DEBUG, "MQ9",
-            "Raw={} | {}V | Thr={} | {}".format(
-                raw, voltage, thr,
-                "⚠️ بالای آستانه!" if raw >= thr else "نرمال"))
+        raw = mq9_adc.read()
+        thr = config.get("gas_threshold",
+                          DEFAULT_CONFIG["gas_threshold"])
+        if raw >= thr:
+            slog("MQ9", "WARNING",
+                 "⚠️ گاز! raw={} >= thr={}".format(raw, thr))
         return raw
     except Exception as e:
-        log(LOG_ERROR, "MQ9", "خطای خواندن: {}".format(e))
+        slog("MQ9", "ERROR", "خواندن: {}".format(e))
         return 0
 
+# ================================================================
+#  سنسور: Flame — Hysteresis State Machine
+#  مشکل‌دار — لاگ DEBUG فعال
+# ================================================================
+FLAME_ON  = 4    # 4 × 2s = 8  ثانیه LOW  متوالی → روشن
+FLAME_OFF = 10   # 10× 2s = 20 ثانیه HIGH متوالی → خاموش
 
-# ── Flame — فیلتر نور محیط ────────────────────────────────────
-# مشکل: سنسور شعله به نور محیط (لامپ/آفتاب) هم واکنش نشان می‌دهد
-# راه‌حل: فقط اگر N سیکل متوالی LOW بود = شعله واقعی
-_flame_count     = 0
-FLAME_CONFIRM    = 3   # تعداد سیکل برای تأیید (با read_interval=2s → 6 ثانیه)
-
+_fl_active = False
+_fl_lo     = 0
+_fl_hi     = 0
 
 def read_flame():
-    """
-    GPIO27 | Active LOW | فیلتر نور: FLAME_CONFIRM سیکل متوالی
-    نور محیط: سیگنال متناوب  → تأیید نمی‌شود
-    شعله واقعی: سیگنال پایدار → تأیید می‌شود
-    """
-    global _flame_count
+    global _fl_active, _fl_lo, _fl_hi
     if flame_pin is None:
-        log(LOG_ERROR, "FLAME", "پین آماده نیست!")
+        slog("FLAME", "ERROR", "پین آماده نیست")
         return False
     try:
         raw = flame_pin.value()
 
-        if raw == 0:       # LOW = سیگنال دریافت شد
-            _flame_count += 1
-        else:              # HIGH = سیگنال قطع شد
-            if _flame_count > 0:
-                log(LOG_DEBUG, "FLAME",
-                    "سیگنال قطع شد | counter ریست (بود: {})".format(
-                        _flame_count))
-            _flame_count = 0
+        if not _fl_active:
+            # منتظر ON
+            if raw == 0:
+                _fl_lo += 1
+                slog("FLAME", "DEBUG",
+                     "LOW {}/{} → waiting ON".format(
+                         _fl_lo, FLAME_ON))
+                if _fl_lo >= FLAME_ON:
+                    _fl_active = True
+                    _fl_lo     = 0
+                    slog("FLAME", "WARNING",
+                         "🔥 شعله تأیید شد! "
+                         "({} سیکل متوالی)".format(FLAME_ON))
+            else:
+                if _fl_lo:
+                    slog("FLAME", "DEBUG",
+                         "HIGH → counter ریست (بود {})".format(
+                             _fl_lo))
+                _fl_lo = 0
+        else:
+            # منتظر OFF
+            if raw == 1:
+                _fl_hi += 1
+                slog("FLAME", "DEBUG",
+                     "HIGH {}/{} → waiting OFF".format(
+                         _fl_hi, FLAME_OFF))
+                if _fl_hi >= FLAME_OFF:
+                    _fl_active = False
+                    _fl_hi     = 0
+                    slog("FLAME", "WARNING",
+                         "✅ شعله خاموش تأیید شد "
+                         "({} سیکل)".format(FLAME_OFF))
+            else:
+                if _fl_hi:
+                    slog("FLAME", "DEBUG",
+                         "LOW → hi counter ریست (بود {})".format(
+                             _fl_hi))
+                _fl_hi = 0
 
-        confirmed = (_flame_count >= FLAME_CONFIRM)
-
-        log(LOG_DEBUG, "FLAME",
-            "Raw={} | Count={}/{} | Confirmed={}".format(
-                raw, _flame_count, FLAME_CONFIRM, confirmed))
-
-        if confirmed and _flame_count == FLAME_CONFIRM:
-            log(LOG_WARNING, "FLAME",
-                "🔥 شعله تأیید شد! ({} سیکل متوالی LOW)".format(
-                    _flame_count))
-
-        return confirmed
+        return _fl_active
 
     except Exception as e:
-        log(LOG_ERROR, "FLAME", "خطای خواندن: {}".format(e))
+        slog("FLAME", "ERROR", "خواندن: {}".format(e))
         return False
 
+# ================================================================
+#  سنسور: PIR — H mode + PULL_DOWN
+#  مشکل‌دار — لاگ DEBUG فعال
+# ================================================================
+PIR_CONFIRM = 1   # H mode → یک HIGH کافی است
+PIR_RESET   = 2   # دو LOW متوالی → ریست
 
-# ── PIR — Debounce + تأیید چندگانه ──────────────────────────
-# مشکل اصلی: GPIO26 بدون PULL_DOWN → Floating → مقادیر تصادفی
-# راه‌حل سخت‌افزاری: اضافه کردن PULL_DOWN در init (بالای کد انجام شد)
-# راه‌حل نرم‌افزاری: Debounce + تأیید N بار متوالی HIGH
-_pir_count       = 0
-_pir_zero_count  = 0
-PIR_CONFIRM      = 2   # تعداد سیکل HIGH برای تأیید حرکت
-PIR_RESET        = 3   # تعداد سیکل LOW برای ریست (جلوگیری از Latch)
-
+_pir_hi = 0
+_pir_lo = 0
 
 def read_motion():
-    """
-    GPIO26 | PULL_DOWN | Active HIGH
-    FIX: در کد اصلی بدون PULL_DOWN بود → Floating → خطای تشخیص
-    FIX: Debounce اضافه شد → جلوگیری از False Positive
-    """
-    global _pir_count, _pir_zero_count
+    global _pir_hi, _pir_lo
     if pir_pin is None:
-        log(LOG_ERROR, "PIR", "پین آماده نیست!")
+        slog("PIR", "ERROR", "پین آماده نیست")
         return False
     try:
         raw = pir_pin.value()
 
         if raw == 1:
-            _pir_count     += 1
-            _pir_zero_count = 0
+            _pir_hi += 1
+            _pir_lo  = 0
+            slog("PIR", "DEBUG",
+                 "HIGH cnt={}".format(_pir_hi))
+            if _pir_hi == PIR_CONFIRM:
+                slog("PIR", "WARNING",
+                     "🚶 حرکت تأیید شد!")
         else:
-            _pir_zero_count += 1
-            # فقط اگر N سیکل متوالی LOW بود، counter را ریست کن
-            if _pir_zero_count >= PIR_RESET:
-                if _pir_count > 0:
-                    log(LOG_DEBUG, "PIR",
-                        "حرکت پایان یافت | counter ریست")
-                _pir_count      = 0
-                _pir_zero_count = 0
+            _pir_lo += 1
+            slog("PIR", "DEBUG",
+                 "LOW cnt={}".format(_pir_lo))
+            if _pir_lo >= PIR_RESET:
+                if _pir_hi:
+                    slog("PIR", "DEBUG",
+                         "حرکت پایان یافت | ریست")
+                _pir_hi = 0
+                _pir_lo = 0
 
-        confirmed = (_pir_count >= PIR_CONFIRM)
-
-        log(LOG_DEBUG, "PIR",
-            "Raw={} | HiCount={}/{} | LoCount={}/{} | Motion={}".format(
-                raw, _pir_count, PIR_CONFIRM,
-                _pir_zero_count, PIR_RESET, confirmed))
-
-        if confirmed and _pir_count == PIR_CONFIRM:
-            log(LOG_WARNING, "PIR",
-                "🚶 حرکت تأیید شد! ({} سیکل متوالی HIGH)".format(
-                    _pir_count))
-
-        return confirmed
+        return _pir_hi >= PIR_CONFIRM
 
     except Exception as e:
-        log(LOG_ERROR, "PIR", "خطای خواندن: {}".format(e))
+        slog("PIR", "ERROR", "خواندن: {}".format(e))
         return False
 
-
+# ================================================================
+#  سنسور: Door — سالم، فقط WARNING
+# ================================================================
 def read_door():
-    """
-    GPIO25 | PULL_UP | LOW=بسته / HIGH=باز
-    ← منطق دقیقاً همان کد اصلی
-    """
     if door_pin is None:
-        log(LOG_ERROR, "DOOR", "پین آماده نیست!")
+        slog("DOOR", "ERROR", "پین آماده نیست")
         return False
     try:
         raw     = door_pin.value()
         is_open = (raw == 1)
-        log(LOG_DEBUG, "DOOR",
-            "Raw={} | Open={}".format(raw, is_open))
         if is_open:
-            log(LOG_WARNING, "DOOR", "🚪 درب باز است!")
+            slog("DOOR", "WARNING", "🚪 درب باز!")
         return is_open
     except Exception as e:
-        log(LOG_ERROR, "DOOR", "خطای خواندن: {}".format(e))
+        slog("DOOR", "ERROR", "خواندن: {}".format(e))
         return False
 
-
+# ================================================================
+#  سنسور: DS18B20 — سالم، فقط WARNING
+# ================================================================
 def read_temperature():
-    """
-    GPIO4 | OneWire | DS18B20
-    ← دقیقاً همان کد اصلی که درست کار می‌کرد
-    """
-    if not DS18B20_AVAILABLE or ds_sensor is None or not ds_roms:
-        log(LOG_DEBUG, "DS18B20",
-            "غیرفعال (available={})".format(DS18B20_AVAILABLE))
+    if not DS18B20_AVAILABLE or not ds_roms:
         return None
     try:
         ds_sensor.convert_temp()
         time.sleep_ms(750)
         temp = ds_sensor.read_temp(ds_roms[0])
         if temp is None:
-            log(LOG_ERROR, "DS18B20", "read_temp → None")
+            slog("DS18B20", "ERROR", "read_temp → None")
             return None
         result = round(float(temp), 2)
-        log(LOG_DEBUG, "DS18B20",
-            "{}°C | Thr={}°C".format(
-                result,
-                config.get("temp_threshold",
-                            DEFAULT_CONFIG["temp_threshold"])))
+        thr    = config.get("temp_threshold",
+                             DEFAULT_CONFIG["temp_threshold"])
+        if result >= thr:
+            slog("DS18B20", "WARNING",
+                 "⚠️ دما بالا! {}°C >= {}°C".format(
+                     result, thr))
         return result
     except Exception as e:
-        log(LOG_ERROR, "DS18B20", "خطای خواندن: {}".format(e))
+        slog("DS18B20", "ERROR", "خواندن: {}".format(e))
         return None
 
-
 # ================================================================
-#  Alarm Evaluator  ← منطق همان کد اصلی
+#  Alarm
 # ================================================================
-
 def evaluate_alarm(data):
-    gas_thr  = config.get("gas_threshold",  DEFAULT_CONFIG["gas_threshold"])
-    temp_thr = config.get("temp_threshold", DEFAULT_CONFIG["temp_threshold"])
-
-    gas_alarm  = data["mq9"] >= gas_thr
-    temp_alarm = (data["temperature"] is not None and
-                  data["temperature"] >= temp_thr)
-
-    flame_alarm  = config.get("flame_enabled",  True) and data["flame"]
-    motion_alarm = config.get("motion_enabled", True) and data["motion"]
-    door_alarm   = config.get("door_enabled",   True) and data["door_open"]
+    gas_thr  = config.get("gas_threshold",
+                           DEFAULT_CONFIG["gas_threshold"])
+    temp_thr = config.get("temp_threshold",
+                           DEFAULT_CONFIG["temp_threshold"])
 
     reasons = {
-        "gas_alarm"   : gas_alarm,
-        "temp_alarm"  : temp_alarm,
-        "flame_alarm" : flame_alarm,
-        "motion_alarm": motion_alarm,
-        "door_alarm"  : door_alarm,
+        "gas_alarm"   : data["mq9"] >= gas_thr,
+        "temp_alarm"  : (data["temperature"] is not None and
+                         data["temperature"] >= temp_thr),
+        "flame_alarm" : (config.get("flame_enabled",  True) and
+                         data["flame"]),
+        "motion_alarm": (config.get("motion_enabled", True) and
+                         data["motion"]),
+        "door_alarm"  : (config.get("door_enabled",   True) and
+                         data["door_open"]),
     }
-
-    alarm = any(reasons.values())
-
+    alarm  = any(reasons.values())
     if alarm:
         active = [k for k, v in reasons.items() if v]
-        log(LOG_WARNING, "ALARM", "🚨 ALARM! دلایل: {}".format(active))
-    else:
-        log(LOG_DEBUG, "ALARM", "وضعیت سبز — بدون هشدار")
-
+        slog("SYSTEM", "WARNING",
+             "🚨 ALARM: {}".format(active))
     return alarm, reasons
 
-
 # ================================================================
-#  Main Sensor Read  ← همان ساختار کد اصلی + لاگ + cache
+#  خواندن همه سنسورها
 # ================================================================
-
-_mq9_warmup_done = False
-MQ9_WARMUP_SEC   = 30
-
-
 def read_sensors():
-    """
-    خواندن همه سنسورها — همان ساختار دقیق کد اصلی
-    """
     global last_data, alarm_history, last_alarm_state
 
-    log(LOG_DEBUG, "SENSORS", "── شروع خواندن ──")
-
-    mq9_value        = read_mq9()
-    temp_value       = read_temperature()
-    flame_status     = read_flame()
-    motion_status    = read_motion()
-    door_open_status = read_door()
-
-    gas_leak_status = mq9_value >= config.get(
-        "gas_threshold", DEFAULT_CONFIG["gas_threshold"])
+    mq9_val    = read_mq9()
+    temp_val   = read_temperature()
+    flame_val  = read_flame()
+    motion_val = read_motion()
+    door_val   = read_door()
 
     data = {
-        "mq9"           : mq9_value,
-        "temperature"   : temp_value if temp_value is not None else 0,
-        "humidity"      : 0,         # فعلاً سنسور رطوبت نداریم (همان کد اصلی)
-        "gas_leak"      : gas_leak_status,
-        "motion"        : motion_status,
-        "door_open"     : door_open_status,
-        "flame"         : flame_status,
-        "device_name"   : config.get("device_name", DEFAULT_CONFIG["device_name"]),
-        "ip"            : get_ip(),
-        "timestamp"     : time.time(),
+        "mq9"            : mq9_val,
+        "temperature"    : temp_val if temp_val is not None else 0,
+        "humidity"       : 0,
+        "gas_leak"       : mq9_val >= config.get(
+                               "gas_threshold",
+                               DEFAULT_CONFIG["gas_threshold"]),
+        "flame"          : flame_val,
+        "motion"         : motion_val,
+        "door_open"      : door_val,
+        "device_name"    : config.get("device_name",
+                            DEFAULT_CONFIG["device_name"]),
+        "ip"             : get_ip(),
+        "timestamp"      : time.time(),
         "guardian_active": True,
-        "alarm_muted"   : False,
-        "warmup_done"   : _mq9_warmup_done,
-        "ds18b20_active": DS18B20_AVAILABLE,
+        "alarm_muted"    : False,
+        "warmup_done"    : _mq9_warmup_done,
     }
 
     alarm, reasons = evaluate_alarm(data)
     data["alarm"]         = alarm
     data["alarm_reasons"] = reasons
 
-    # ثبت تاریخچه فقط در لحظه تغییر False → True
     if alarm and not last_alarm_state:
-        try:
-            alarm_history.append({
-                "timestamp": data["timestamp"],
-                "reasons"  : reasons
-            })
-            if len(alarm_history) > 20:
-                alarm_history = alarm_history[-20:]
-            log(LOG_WARNING, "ALARM",
-                "رویداد در تاریخچه ثبت شد (جمع: {})".format(
-                    len(alarm_history)))
-        except Exception as e:
-            log(LOG_ERROR, "ALARM", "خطای تاریخچه: {}".format(e))
+        alarm_history.append({
+            "timestamp": data["timestamp"],
+            "reasons"  : reasons
+        })
+        if len(alarm_history) > 20:
+            alarm_history = alarm_history[-20:]
 
     last_alarm_state = alarm
     last_data        = data
-
-    log(LOG_DEBUG, "SENSORS",
-        "MQ9={} | T={}°C | Flame={} | PIR={} | Door={}".format(
-            mq9_value, temp_value, flame_status,
-            motion_status, door_open_status))
-    log(LOG_DEBUG, "SENSORS", "── پایان خواندن ──")
-
     return data
 
-
 # ================================================================
-#  Background Sensor Loop — خواندن مداوم مستقل از HTTP
+#  Thread پس‌زمینه
 # ================================================================
-
 def _sensor_loop():
-    """
-    Thread پس‌زمینه — مستقل از HTTP Server اجرا می‌شود
-    اطمینان می‌دهد که alarm حتی بدون Request هم تشخیص داده می‌شود
-    """
     global _mq9_warmup_done
+    slog("SYSTEM", "INFO",
+         "Thread شروع | interval={}s".format(
+             config.get("read_interval",
+                         DEFAULT_CONFIG["read_interval"])))
 
-    interval = config.get("read_interval", DEFAULT_CONFIG["read_interval"])
-    log(LOG_INFO, "LOOP",
-        "Thread شروع شد | فاصله: {}s".format(interval))
-
-    # MQ9 Warm-up
-    log(LOG_WARNING, "MQ9",
-        "⏳ Warm-up شروع ({} ثانیه) — مقادیر گاز هنوز معتبر نیستند".format(
-            MQ9_WARMUP_SEC))
+    slog("MQ9", "WARNING",
+         "⏳ Warm-up {} ثانیه...".format(MQ9_WARMUP_SEC))
     for i in range(MQ9_WARMUP_SEC):
-        if i % 5 == 0 and i > 0:
-            log(LOG_DEBUG, "MQ9",
-                "Warm-up: {}/{} ثانیه...".format(i, MQ9_WARMUP_SEC))
         time.sleep(1)
     _mq9_warmup_done = True
-    log(LOG_INFO, "MQ9", "✅ Warm-up کامل — مقادیر حالا معتبرند")
+    slog("MQ9", "INFO", "✅ Warm-up کامل")
 
-    # حلقه اصلی
     while True:
         try:
             read_sensors()
         except Exception as e:
-            log(LOG_ERROR, "LOOP", "خطا: {}".format(e))
-        interval = config.get("read_interval", DEFAULT_CONFIG["read_interval"])
-        time.sleep(interval)
-
+            slog("SYSTEM", "ERROR",
+                 "loop خطا: {}".format(e))
+        time.sleep(config.get("read_interval",
+                               DEFAULT_CONFIG["read_interval"]))
 
 # ================================================================
-#  HTTP Response Builder  ← همان کد اصلی
+#  HTTP
 # ================================================================
-
-def http_response(conn, status_code=200,
-                  content_type="application/json", body=""):
-    reason = {200: "OK", 400: "Bad Request", 404: "Not Found",
-              405: "Method Not Allowed",
-              500: "Internal Server Error"}.get(status_code, "OK")
-
+def http_ok_json(conn, body):
     if isinstance(body, (dict, list)):
         body = json.dumps(body)
-    if not isinstance(body, str):
-        body = str(body)
+    _send(conn, 200, "application/json", body)
 
-    resp  = "HTTP/1.1 {} {}\r\n".format(status_code, reason)
-    resp += "Content-Type: {}\r\n".format(content_type)
-    resp += "Access-Control-Allow-Origin: *\r\n"
-    resp += "Connection: close\r\n"
-    resp += "Content-Length: {}\r\n".format(len(body))
-    resp += "\r\n"
-    resp += body
+def http_ok_html(conn, body):
+    _send(conn, 200, "text/html; charset=utf-8", body)
 
+def _send(conn, code, ctype, body):
+    reasons = {200:"OK", 400:"Bad Request",
+               404:"Not Found", 500:"Internal Server Error"}
+    r  = "HTTP/1.1 {} {}\r\n".format(code, reasons.get(code,"OK"))
+    r += "Content-Type: {}\r\n".format(ctype)
+    r += "Access-Control-Allow-Origin: *\r\n"
+    r += "Connection: close\r\n"
+    r += "Content-Length: {}\r\n\r\n".format(len(body))
+    r += body
+    try:    conn.send(r.encode("utf-8"))
+    except: conn.send(r)
+
+def parse_request(conn):
     try:
-        conn.send(resp.encode("utf-8"))
-    except Exception:
-        try:
-            conn.send(resp)
-        except Exception as e:
-            log(LOG_ERROR, "HTTP", "خطای send: {}".format(e))
-
-
-# ================================================================
-#  Request Parser  ← همان کد اصلی + لاگ
-# ================================================================
-
-def parse_request(client_conn):
-    try:
-        request = client_conn.recv(2048)
-        if not request:
-            return None, None, None, None
-
-        try:
-            req_text = request.decode("utf-8")
-        except Exception:
-            req_text = request.decode("latin-1")
-
-        lines = req_text.split("\r\n")
+        raw = conn.recv(2048)
+        if not raw: return None, None, None
+        try:    txt = raw.decode("utf-8")
+        except: txt = raw.decode("latin-1")
+        lines = txt.split("\r\n")
         if not lines or len(lines[0].split()) < 2:
-            return None, None, None, None
-
+            return None, None, None
         parts  = lines[0].split()
         method = parts[0]
         path   = parts[1]
+        body   = txt.split("\r\n\r\n", 1)[1] \
+                 if "\r\n\r\n" in txt else ""
+        return method, path, body
+    except: return None, None, None
 
-        headers = {}
-        i = 1
-        while i < len(lines) and lines[i]:
-            if ":" in lines[i]:
-                k, v = lines[i].split(":", 1)
-                headers[k.strip().lower()] = v.strip()
-            i += 1
+# ================================================================
+#  صفحه HTML لاگ — در مرورگر باز می‌شود
+# ================================================================
+def _log_html(sensor_name, entries):
+    """
+    یک صفحه HTML ساده که در مرورگر نمایش داده می‌شود
+    رنگ‌بندی: DEBUG=خاکستری / INFO=آبی / WARNING=نارنجی / ERROR=قرمز
+    """
+    rows = ""
+    for e in reversed(entries):
+        lvl = e["lvl"]
+        color = {
+            "DEBUG"  : "#888",
+            "INFO"   : "#2196F3",
+            "WARNING": "#FF9800",
+            "ERROR"  : "#f44336",
+        }.get(lvl, "#fff")
 
-        body = ""
-        if "\r\n\r\n" in req_text:
-            body = req_text.split("\r\n\r\n", 1)[1]
+        rows += (
+            "<tr>"
+            "<td style='color:#aaa'>{}</td>"
+            "<td style='color:{};font-weight:bold'>{}</td>"
+            "<td>{}</td>"
+            "</tr>"
+        ).format(e["ts"], color, lvl, e["msg"])
 
-        log(LOG_DEBUG, "HTTP", "← {} {}".format(method, path))
-        return method, path, headers, body
+    html = """<!DOCTYPE html>
+<html><head>
+<meta charset='utf-8'>
+<title>Log: {name}</title>
+<meta http-equiv='refresh' content='3'>
+<style>
+  body{{background:#1e1e1e;color:#ddd;
+       font-family:monospace;padding:20px}}
+  h2{{color:#4fc3f7}}
+  table{{width:100%;border-collapse:collapse}}
+  td{{padding:6px 10px;border-bottom:1px solid #333;
+      vertical-align:top}}
+  td:first-child{{width:120px;white-space:nowrap}}
+  td:nth-child(2){{width:80px}}
+  .refresh{{color:#666;font-size:12px}}
+</style>
+</head><body>
+<h2>🛡 Guardian — لاگ سنسور: {name}</h2>
+<p class='refresh'>هر 3 ثانیه بارگذاری مجدد</p>
+<table>{rows}</table>
+<hr>
+<a href='/logs' style='color:#4fc3f7'>← همه سنسورها</a>
+</body></html>""".format(name=sensor_name, rows=rows)
+    return html
 
-    except Exception as e:
-        log(LOG_ERROR, "HTTP", "خطای parse: {}".format(e))
-        return None, None, None, None
+def _all_logs_html():
+    """
+    صفحه اصلی لاگ — لینک به هر سنسور
+    آخرین WARNING/ERROR هر سنسور نمایش داده می‌شود
+    """
+    cards = ""
+    for sensor, entries in SENSOR_LOGS.items():
+        last_warn = next(
+            (e for e in reversed(entries)
+             if e["lvl"] in ("WARNING", "ERROR")), None)
 
+        badge_color = "#4caf50"   # سبز = سالم
+        badge_text  = "OK"
+        last_msg    = "—"
+
+        if last_warn:
+            if last_warn["lvl"] == "ERROR":
+                badge_color = "#f44336"
+                badge_text  = "ERROR"
+            else:
+                badge_color = "#FF9800"
+                badge_text  = "WARN"
+            last_msg = last_warn["msg"][:60]
+
+        cards += """
+<div style='background:#2d2d2d;border-radius:8px;
+            padding:15px;margin:10px 0;
+            border-left:4px solid {bc}'>
+  <div style='display:flex;justify-content:space-between'>
+    <a href='/logs/{s}' style='color:#4fc3f7;
+       font-size:18px;font-weight:bold'>{s}</a>
+    <span style='background:{bc};color:#fff;
+          padding:3px 10px;border-radius:4px;
+          font-size:12px'>{bt}</span>
+  </div>
+  <div style='color:#888;margin-top:8px;
+              font-size:13px'>{lm}</div>
+  <div style='color:#555;margin-top:5px;
+              font-size:11px'>{cnt} رویداد</div>
+</div>""".format(
+            bc=badge_color, bt=badge_text,
+            s=sensor, lm=last_msg,
+            cnt=len(entries))
+
+    ip = get_ip()
+    html = """<!DOCTYPE html>
+<html><head>
+<meta charset='utf-8'>
+<title>Guardian Logs</title>
+<meta http-equiv='refresh' content='5'>
+<style>
+  body{{background:#1e1e1e;color:#ddd;
+       font-family:sans-serif;padding:20px;
+       max-width:700px;margin:auto}}
+  h2{{color:#4fc3f7}}
+  a{{text-decoration:none}}
+  .nav{{margin-top:20px;color:#666}}
+  .nav a{{color:#4fc3f7;margin-right:15px}}
+</style>
+</head><body>
+<h2>🛡 Guardian AI — داشبورد لاگ</h2>
+<div style='color:#666;font-size:13px'>
+  IP: {ip} | هر 5 ثانیه بارگذاری مجدد
+</div>
+<div style='margin-top:20px'>{cards}</div>
+<div class='nav'>
+  <a href='/data'>📊 داده زنده</a>
+  <a href='/diag'>🔧 دیاگنوز</a>
+</div>
+</body></html>""".format(ip=ip, cards=cards)
+    return html
+
+def _diag_html():
+    """
+    صفحه دیاگنوز — وضعیت لحظه‌ای همه سنسورها
+    """
+    def row(label, value, ok=True):
+        color = "#4caf50" if ok else "#f44336"
+        return (
+            "<tr><td style='color:#888'>{}</td>"
+            "<td style='color:{}'>{}</td></tr>"
+        ).format(label, color, value)
+
+    mq9_raw  = read_mq9() if mq9_adc else "N/A"
+    temp     = read_temperature()
+    door_raw = door_pin.value() if door_pin else "N/A"
+    pir_raw  = pir_pin.value()  if pir_pin  else "N/A"
+    fl_raw   = flame_pin.value() if flame_pin else "N/A"
+
+    thr = config.get("gas_threshold",
+                      DEFAULT_CONFIG["gas_threshold"])
+    rows = (
+        row("MQ9 Raw",
+            "{} / {}".format(mq9_raw, thr),
+            mq9_raw < thr if isinstance(mq9_raw, int) else False)
+        + row("MQ9 Warmup",
+              "✅ آماده" if _mq9_warmup_done else "⏳ در حال گرم شدن",
+              _mq9_warmup_done)
+        + row("DS18B20",
+              "{}°C".format(temp) if temp else "یافت نشد",
+              temp is not None)
+        + row("Flame Raw GPIO{}".format(FLAME_PIN),
+              "{} | active={}".format(fl_raw, _fl_active),
+              not _fl_active)
+        + row("Flame Counters",
+              "LOW={}/{} HIGH={}/{}".format(
+                  _fl_lo, FLAME_ON, _fl_hi, FLAME_OFF),
+              True)
+        + row("PIR Raw GPIO{}".format(PIR_PIN),
+              "{} | hi={} lo={}".format(
+                  pir_raw, _pir_hi, _pir_lo),
+              True)
+        + row("Door Raw GPIO{}".format(DOOR_PIN),
+              "{} | {}".format(
+                  door_raw,
+                  "باز" if door_raw == 1 else "بسته"),
+              door_raw == 0)
+        + row("WiFi",
+              "✅ {}".format(get_ip())
+              if (wlan and wlan.isconnected())
+              else "❌ قطع",
+              wlan is not None and wlan.isconnected())
+    )
+
+    html = """<!DOCTYPE html>
+<html><head>
+<meta charset='utf-8'>
+<title>Guardian Diag</title>
+<meta http-equiv='refresh' content='2'>
+<style>
+  body{{background:#1e1e1e;color:#ddd;
+       font-family:monospace;padding:20px}}
+  h2{{color:#4fc3f7}}
+  table{{border-collapse:collapse;width:100%}}
+  td{{padding:8px 12px;border-bottom:1px solid #333}}
+  td:first-child{{color:#888;width:220px}}
+  .nav a{{color:#4fc3f7;margin-right:15px;
+          text-decoration:none}}
+</style>
+</head><body>
+<h2>🔧 دیاگنوز لحظه‌ای</h2>
+<div style='color:#666;font-size:12px;margin-bottom:15px'>
+  هر 2 ثانیه بارگذاری مجدد
+</div>
+<table>{rows}</table>
+<div style='margin-top:20px' class='nav'>
+  <a href='/logs'>📋 لاگ‌ها</a>
+  <a href='/data'>📊 داده JSON</a>
+</div>
+</body></html>""".format(rows=rows)
+    return html
 
 # ================================================================
 #  HTTP Handlers
 # ================================================================
-
-def handle_root(conn):
-    http_response(conn, 200, "application/json", {
-        "message"    : "Guardian ESP32 API is running ✅",
-        "device_name": config.get("device_name", DEFAULT_CONFIG["device_name"]),
-        "ip"         : get_ip(),
-        "warmup_done": _mq9_warmup_done,
-        "ds18b20"    : DS18B20_AVAILABLE,
-        "endpoints"  : {
-            "GET /data"   : "خواندن سنسورها",
-            "GET /config" : "نمایش تنظیمات",
-            "POST /config": "بروزرسانی تنظیمات",
-            "GET /logs"   : "لاگ‌ها",
-            "GET /history": "تاریخچه alarm",
-            "GET /diag"   : "دیاگنوز سخت‌افزار",
-        }
-    })
-
-
 def handle_data(conn):
-    """
-    اگر cache دارد → از cache بده (سریع‌تر)
-    اگر cache ندارد → مستقیم بخوان
-    """
     try:
         data = last_data if last_data else read_sensors()
-        http_response(conn, 200, "application/json", data)
+        http_ok_json(conn, data)
     except Exception as e:
-        log(LOG_ERROR, "HTTP", "handle_data خطا: {}".format(e))
-        http_response(conn, 500, "application/json", {
-            "error": "failed_to_read_sensors", "details": str(e)
-        })
-
+        _send(conn, 500, "application/json",
+              json.dumps({"error": str(e)}))
 
 def handle_config_get(conn):
-    try:
-        http_response(conn, 200, "application/json", config)
-    except Exception as e:
-        http_response(conn, 500, "application/json",
-                      {"error": "failed_to_get_config", "details": str(e)})
-
+    http_ok_json(conn, config)
 
 def handle_config_post(conn, body):
     global config
     try:
-        if not body:
-            http_response(conn, 400, "application/json",
-                          {"success": False, "error": "empty body"})
-            return
-
-        new_cfg = json.loads(body)
-        if not isinstance(new_cfg, dict):
-            http_response(conn, 400, "application/json",
-                          {"success": False, "error": "invalid json"})
-            return
-
-        changed = []
-        for key in DEFAULT_CONFIG:
-            if key in new_cfg:
-                old = config.get(key)
-                config[key] = new_cfg[key]
-                if old != new_cfg[key]:
-                    changed.append("{}:{} → {}".format(key, old, new_cfg[key]))
-
+        nc = json.loads(body)
+        if not isinstance(nc, dict):
+            raise ValueError("not a dict")
+        for k in DEFAULT_CONFIG:
+            if k in nc:
+                config[k] = nc[k]
         save_config()
-        if changed:
-            log(LOG_INFO, "CONFIG", "تغییرات: {}".format(changed))
-
-        http_response(conn, 200, "application/json", {
-            "success": True, "changed": changed, "config": config
-        })
-
+        http_ok_json(conn, {"success": True, "config": config})
     except Exception as e:
-        log(LOG_ERROR, "CONFIG", "خطای post: {}".format(e))
-        http_response(conn, 500, "application/json",
-                      {"success": False, "error": str(e)})
-
-
-def handle_logs(conn):
-    try:
-        http_response(conn, 200, "application/json", {
-            "total": len(log_history),
-            "logs" : log_history
-        })
-    except Exception as e:
-        http_response(conn, 500, "application/json", {"error": str(e)})
-
-
-def handle_history(conn):
-    try:
-        http_response(conn, 200, "application/json", {
-            "total"  : len(alarm_history),
-            "history": alarm_history
-        })
-    except Exception as e:
-        http_response(conn, 500, "application/json", {"error": str(e)})
-
-
-def handle_diag(conn):
-    """
-    دیاگنوز کامل سخت‌افزار — برای دیباگ از مرورگر
-    GET /diag
-    """
-    try:
-        diag = {
-            "mq9": {
-                "pin"        : MQ9_PIN,
-                "ready"      : mq9_adc is not None,
-                "warmup_done": _mq9_warmup_done,
-                "raw"        : read_mq9() if mq9_adc else -1,
-                "type"       : "ADC1_CH6 (امن با WiFi)",
-            },
-            "flame": {
-                "pin"        : FLAME_PIN,
-                "ready"      : flame_pin is not None,
-                "raw"        : flame_pin.value() if flame_pin else None,
-                "count"      : _flame_count,
-                "confirm_thr": FLAME_CONFIRM,
-                "detected"   : read_flame() if flame_pin else None,
-                "logic"      : "Active LOW | فیلتر نور فعال",
-            },
-            "pir": {
-                "pin"        : PIR_PIN,
-                "ready"      : pir_pin is not None,
-                "raw"        : pir_pin.value() if pir_pin else None,
-                "hi_count"   : _pir_count,
-                "confirm_thr": PIR_CONFIRM,
-                "detected"   : _pir_count >= PIR_CONFIRM,
-                "logic"      : "Active HIGH | PULL_DOWN | Debounce",
-                "fix"        : "PULL_DOWN اضافه شد — Floating برطرف شد",
-            },
-            "door": {
-                "pin"    : DOOR_PIN,
-                "ready"  : door_pin is not None,
-                "raw"    : door_pin.value() if door_pin else None,
-                "is_open": read_door() if door_pin else None,
-                "logic"  : "PULL_UP | LOW=بسته / HIGH=باز",
-            },
-            "ds18b20": {
-                "pin"      : DS18B20_PIN,
-                "available": DS18B20_AVAILABLE,
-                "rom"      : str(ds_roms[0]) if ds_roms else None,
-                "temp_c"   : read_temperature(),
-                "note"     : "GPIO4 — همان پین اصلی که درست کار می‌کرد",
-            },
-            "wifi": {
-                "connected": wlan.isconnected() if wlan else False,
-                "ip"       : get_ip(),
-                "ssid"     : WIFI_SSID,
-            },
-            "config": config,
-        }
-        log(LOG_INFO, "DIAG", "درخواست دیاگنوز پاسخ داده شد")
-        http_response(conn, 200, "application/json", diag)
-    except Exception as e:
-        http_response(conn, 500, "application/json", {"error": str(e)})
-
+        _send(conn, 400, "application/json",
+              json.dumps({"success": False, "error": str(e)}))
 
 # ================================================================
-#  HTTP Server  ← همان ساختار کد اصلی + endpoint های جدید
+#  HTTP Server
 # ================================================================
-
 def start_server():
     import socket
-    log_sep("HTTP SERVER")
     addr = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
     s    = socket.socket()
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(addr)
     s.listen(5)
-
     ip = get_ip()
-    log(LOG_INFO, "HTTP", "سرور روی پورت 80 | IP: {}".format(ip))
-    log(LOG_INFO, "HTTP", "دیاگنوز : http://{}/diag".format(ip))
-    log(LOG_INFO, "HTTP", "لاگ‌ها  : http://{}/logs".format(ip))
-    log(LOG_INFO, "HTTP", "داده‌ها : http://{}/data".format(ip))
+    slog("SYSTEM", "INFO",
+         "سرور آماده | http://{}".format(ip))
+    slog("SYSTEM", "INFO",
+         "لاگ‌ها: http://{}/logs".format(ip))
+    slog("SYSTEM", "INFO",
+         "دیاگنوز: http://{}/diag".format(ip))
 
     while True:
         conn, addr = s.accept()
-        log(LOG_DEBUG, "HTTP", "اتصال از {}".format(addr[0]))
         try:
-            method, path, headers, body = parse_request(conn)
+            method, path, body = parse_request(conn)
+            if not method:
+                _send(conn, 400, "application/json",
+                      '{"error":"bad request"}')
 
-            if method is None:
-                http_response(conn, 400, "application/json",
-                              {"error": "bad request"})
             elif method == "OPTIONS":
-                http_response(conn, 200, "text/plain", "")
-            elif method == "GET"  and path == "/":
-                handle_root(conn)
-            elif method == "GET"  and path == "/data":
+                _send(conn, 200, "text/plain", "")
+
+            elif method == "GET" and path == "/":
+                http_ok_html(conn, _all_logs_html())
+
+            elif method == "GET" and path == "/logs":
+                http_ok_html(conn, _all_logs_html())
+
+            elif method == "GET" and path.startswith("/logs/"):
+                sensor = path[6:].upper()
+                if sensor in SENSOR_LOGS:
+                    http_ok_html(conn,
+                        _log_html(sensor,
+                                   SENSOR_LOGS[sensor]))
+                else:
+                    _send(conn, 404, "text/plain",
+                          "sensor not found")
+
+            elif method == "GET" and path == "/diag":
+                http_ok_html(conn, _diag_html())
+
+            elif method == "GET" and path == "/data":
                 handle_data(conn)
+
             elif method == "GET"  and path == "/config":
                 handle_config_get(conn)
+
             elif method == "POST" and path == "/config":
                 handle_config_post(conn, body)
-            elif method == "GET"  and path == "/logs":
-                handle_logs(conn)
-            elif method == "GET"  and path == "/history":
-                handle_history(conn)
-            elif method == "GET"  and path == "/diag":
-                handle_diag(conn)
+
             else:
-                log(LOG_WARNING, "HTTP",
-                    "مسیر یافت نشد: {} {}".format(method, path))
-                http_response(conn, 404, "application/json",
-                              {"error": "not found", "path": path})
+                _send(conn, 404, "application/json",
+                      json.dumps({"error": "not found"}))
 
         except Exception as e:
-            log(LOG_ERROR, "HTTP", "خطای handler: {}".format(e))
+            slog("SYSTEM", "ERROR",
+                 "handler: {}".format(e))
             try:
-                http_response(conn, 500, "application/json",
-                              {"error": "server_error", "details": str(e)})
-            except Exception:
-                pass
+                _send(conn, 500, "application/json",
+                      json.dumps({"error": str(e)}))
+            except: pass
         finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
+            try: conn.close()
+            except: pass
 
 # ================================================================
-#  Main  ← همان ساختار کد اصلی + Thread
+#  Main
 # ================================================================
-
-log_sep("GUARDIAN BOOT")
-log(LOG_INFO, "MAIN", "🛡️  Guardian AI ESP32 v3.0")
-log(LOG_INFO, "MAIN", "MicroPython: {}".format(sys.version))
+slog("SYSTEM", "INFO",
+     "Guardian AI v5.0 | {}".format(sys.version))
 
 load_config()
 wlan = connect_wifi()
 time.sleep(1)
 
-# شروع Thread پس‌زمینه سنسورها
 try:
     import _thread
     _thread.start_new_thread(_sensor_loop, ())
-    log(LOG_INFO, "MAIN", "Thread سنسور شروع شد ✅")
+    slog("SYSTEM", "INFO", "Thread سنسور ✅")
 except Exception as e:
-    log(LOG_ERROR, "MAIN",
-        "Thread شروع نشد: {} → خواندن اولیه مستقیم".format(e))
-    try:
-        read_sensors()
-    except Exception as e2:
-        log(LOG_WARNING, "MAIN", "خواندن اولیه: {}".format(e2))
+    slog("SYSTEM", "ERROR",
+         "Thread: {} → مستقیم".format(e))
+    try: read_sensors()
+    except: pass
 
-log_sep("BOOT DONE")
 start_server()
