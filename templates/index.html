@@ -4,14 +4,6 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Guardian AI Dashboard</title>
-  <button onclick="listenAndChat()">🎤 صحبت با Guardian</button>
-  <pre id="chatBox"></pre>
-  <select id="langSelect">
-  <option value="fa">فارسی</option>
-  <option value="en">English</option>
-</select>
-<button onclick="listenAndChat()">🎤 Start</button>
-
   <style>
     :root{
       --bg:#07111f;
@@ -737,12 +729,6 @@
             <strong id="tts-status-pill">--</strong>
           </div>
 
-          <div class="pill">
-            <span>👂</span>
-            <span data-i18n="wakeword_label">Wakeword:</span>
-            <strong id="wakeword-status-pill">--</strong>
-          </div>
-
           <div class="pill span-last">
             <span>🗣️</span>
             <span data-i18n="last_command_label">آخرین فرمان:</span>
@@ -925,7 +911,7 @@
             <div>
               <h2 data-i18n="controls_title">کنترل‌ها</h2>
               <div class="panel-subtitle" data-i18n="controls_subtitle">
-                مدیریت Guardian، آلارم، دستیار صوتی و موتور Wakeword
+                مدیریت Guardian، آلارم و دستیار صوتی
               </div>
             </div>
           </div>
@@ -957,24 +943,6 @@
                 <button id="stt-stop-btn" class="btn danger" type="button" data-i18n="stop_stt">توقف STT</button>
               </div>
             </div>
-
-            <div class="control-card">
-              <h3 data-i18n="wakeword_control">کنترل Wakeword</h3>
-              <p data-i18n="wakeword_control_desc">فعال یا غیرفعال‌سازی تشخیص واژه بیدارباش.</p>
-              <div class="btn-group">
-                <button id="wakeword-enable-btn" class="btn success" type="button" data-i18n="enable_wakeword">فعال‌سازی Wakeword</button>
-                <button id="wakeword-disable-btn" class="btn danger" type="button" data-i18n="disable_wakeword">غیرفعال‌سازی Wakeword</button>
-              </div>
-            </div>
-
-            <div class="control-card span-2">
-              <h3 data-i18n="tts_control">تبدیل متن به گفتار</h3>
-              <p data-i18n="tts_control_desc">متن را وارد کنید تا توسط موتور TTS خوانده شود.</p>
-              <div class="chat-compose">
-                <input id="tts-text-input" type="text" data-i18n-placeholder="tts_placeholder" placeholder="متنی برای خواندن وارد کنید..." />
-                <button id="tts-speak-btn" class="btn info" type="button" data-i18n="speak">خواندن متن</button>
-              </div>
-            </div>
           </div>
         </div>
 
@@ -983,7 +951,7 @@
             <div>
               <h2 data-i18n="config_title">پیکربندی سیستم</h2>
               <div class="panel-subtitle" data-i18n="config_subtitle">
-                تنظیم آستانه‌ها، IP، حساسیت Wakeword و پارامترهای صوتی
+                تنظیم IP، زبان دستیار و آستانه‌های سنسورها
               </div>
             </div>
           </div>
@@ -1009,35 +977,7 @@
 
             <div class="field">
               <label for="gas-threshold-input" data-i18n="gas_threshold">آستانه گاز</label>
-              <input id="gas-threshold-input" type="number" step="0.1" value="400" />
-            </div>
-
-            <div class="field">
-              <label for="tts-voice-id-input">TTS Voice ID</label>
-              <input id="tts-voice-id-input" type="text" placeholder="default" />
-            </div>
-
-            <div class="field">
-              <label for="tts-model-name-input">TTS Model Path / Name</label>
-              <input id="tts-model-name-input" type="text" placeholder="models/tts" />
-            </div>
-
-            <div class="field">
-              <label for="wakeword-sensitivity-input" data-i18n="wakeword_sensitivity">حساسیت Wakeword</label>
-              <div class="range-wrap">
-                <input id="wakeword-sensitivity-input" type="range" min="0" max="1" step="0.01" value="0.5" />
-                <span id="wakeword-sensitivity-value" class="range-value">0.50</span>
-              </div>
-            </div>
-
-            <div class="field">
-              <label for="audio-input-device-index-input">Audio Input Device Index</label>
-              <input id="audio-input-device-index-input" type="number" step="1" placeholder="0" />
-            </div>
-
-            <div class="field">
-              <label for="audio-output-device-index-input">Audio Output Device Index</label>
-              <input id="audio-output-device-index-input" type="number" step="1" placeholder="0" />
+              <input id="gas-threshold-input" type="number" step="0.1" value="2000" />
             </div>
 
             <div class="field span-2">
@@ -1111,7 +1051,7 @@
     </section>
 
     <p class="footer-note" data-i18n="footer_note">
-      Guardian AI Dashboard — Flask + ESP32 + STT/TTS + Wakeword
+      Guardian AI Dashboard — Flask + ESP32 + AI Voice
     </p>
   </div>
 
@@ -1127,13 +1067,8 @@
       defaults: {
         ESP32_IP: '',
         TEMPERATURE_THRESHOLD: 50,
-        GAS_THRESHOLD: 400,
-        WAKEWORD_SENSITIVITY: 0.5,
+        GAS_THRESHOLD: 2000,
         STT_LANGUAGE: 'fa',
-        TTS_VOICE_ID: '',
-        TTS_MODEL_PATH: '',
-        AUDIO_INPUT_DEVICE_INDEX: '',
-        AUDIO_OUTPUT_DEVICE_INDEX: '',
         SYSTEM_PROMPT: ''
       }
     };
@@ -1150,9 +1085,9 @@
         sensors_title: 'نمایشگر سنسورها',
         sensors_subtitle: 'پایش زنده‌ی دما، گاز MQ9، شعله، درب و حرکت',
         controls_title: 'کنترل‌ها',
-        controls_subtitle: 'مدیریت Guardian، آلارم، دستیار صوتی و موتور Wakeword',
+        controls_subtitle: 'مدیریت Guardian، آلارم و دستیار صوتی',
         config_title: 'پیکربندی سیستم',
-        config_subtitle: 'تنظیم آستانه‌ها، IP، حساسیت Wakeword و پارامترهای صوتی',
+        config_subtitle: 'تنظیم IP، زبان دستیار و آستانه‌های سنسورها',
         chat_title: 'چت با Guardian AI',
         chat_subtitle: 'فرمان متنی ارسال کنید و پاسخ سیستم را دریافت کنید',
         system_snapshot: 'وضعیت سریع سیستم',
@@ -1172,7 +1107,6 @@
         guardian_status_label: 'وضعیت Guardian:',
         alarm_status_label: 'وضعیت آلارم:',
         alarm_muted_label: 'وضعیت بی‌صدا:',
-        wakeword_label: 'Wakeword:',
         last_command_label: 'آخرین فرمان:',
         guardian_control: 'کنترل Guardian',
         guardian_control_desc: 'فعال یا غیرفعال‌سازی هسته نظارتی Guardian.',
@@ -1186,18 +1120,9 @@
         stt_control_desc: 'شروع یا توقف تبدیل گفتار به متن.',
         start_stt: 'شروع STT',
         stop_stt: 'توقف STT',
-        wakeword_control: 'کنترل Wakeword',
-        wakeword_control_desc: 'فعال یا غیرفعال‌سازی تشخیص واژه بیدارباش.',
-        enable_wakeword: 'فعال‌سازی Wakeword',
-        disable_wakeword: 'غیرفعال‌سازی Wakeword',
-        tts_control: 'تبدیل متن به گفتار',
-        tts_control_desc: 'متن را وارد کنید تا توسط موتور TTS خوانده شود.',
-        speak: 'خواندن متن',
-        tts_placeholder: 'متنی برای خواندن وارد کنید...',
         stt_language: 'زبان STT',
         temp_threshold: 'آستانه دما',
         gas_threshold: 'آستانه گاز',
-        wakeword_sensitivity: 'حساسیت Wakeword',
         save_config: 'ذخیره تنظیمات',
         load_config: 'بارگذاری تنظیمات',
         chat_placeholder: 'دستور یا پیام خود را بنویسید...',
@@ -1206,7 +1131,7 @@
         guardian_engine: 'هسته Guardian',
         alarm_engine: 'سامانه آلارم',
         environment_status: 'وضعیت محیط',
-        footer_note: 'Guardian AI Dashboard — Flask + ESP32 + STT/TTS + Wakeword',
+        footer_note: 'Guardian AI Dashboard — Flask + ESP32 + AI Voice',
         active: 'فعال',
         inactive: 'غیرفعال',
         enabled: 'روشن',
@@ -1226,7 +1151,7 @@
         no: 'خیر',
         sending: 'در حال ارسال...',
         no_response: 'پاسخی دریافت نشد.',
-        defaults_loaded: 'مقادیر پیش‌فرض رابط کاربری بارگذاری شد. مسیر GET /api/config در بک‌اند فعلی وجود ندارد.',
+        defaults_loaded: 'مقادیر تنظیمات در فرم بارگذاری شد.',
         config_saved: 'تنظیمات با موفقیت ارسال شد.',
         action_done: 'عملیات با موفقیت انجام شد.',
         request_failed: 'درخواست با خطا مواجه شد.',
@@ -1234,7 +1159,7 @@
         empty_text: 'لطفاً متن یا پیام را وارد کنید.',
         quick_guardian_on: 'Guardian فعال است و هسته نظارتی در حال اجراست.',
         quick_guardian_off: 'Guardian غیرفعال است.',
-        quick_voice: 'STT: {stt} | TTS: {tts} | Wakeword: {wake}',
+        quick_voice: 'STT: {stt} | TTS: {tts}',
         quick_alarm: 'Alarm: {alarm} | Mute: {mute}',
         quick_env: 'دما: {temp}°C | گاز: {gas}',
         server_error: 'خطای سرور',
@@ -1251,9 +1176,9 @@
         sensors_title: 'Sensors Overview',
         sensors_subtitle: 'Live monitoring of temperature, MQ9 gas, flame, door, and motion',
         controls_title: 'Controls',
-        controls_subtitle: 'Manage Guardian, alarm, voice assistant, and wakeword engine',
+        controls_subtitle: 'Manage Guardian, alarm, and voice assistant',
         config_title: 'System Configuration',
-        config_subtitle: 'Adjust thresholds, IP, wakeword sensitivity, and voice parameters',
+        config_subtitle: 'Adjust IP, assistant language, and sensor thresholds',
         chat_title: 'Chat with Guardian AI',
         chat_subtitle: 'Send a text command and receive the system response',
         system_snapshot: 'Quick System Snapshot',
@@ -1273,7 +1198,6 @@
         guardian_status_label: 'Guardian Status:',
         alarm_status_label: 'Alarm Status:',
         alarm_muted_label: 'Mute Status:',
-        wakeword_label: 'Wakeword:',
         last_command_label: 'Last Command:',
         guardian_control: 'Guardian Control',
         guardian_control_desc: 'Enable or disable the Guardian monitoring core.',
@@ -1287,18 +1211,9 @@
         stt_control_desc: 'Start or stop speech-to-text.',
         start_stt: 'Start STT',
         stop_stt: 'Stop STT',
-        wakeword_control: 'Wakeword Control',
-        wakeword_control_desc: 'Enable or disable wakeword detection.',
-        enable_wakeword: 'Enable Wakeword',
-        disable_wakeword: 'Disable Wakeword',
-        tts_control: 'Text to Speech',
-        tts_control_desc: 'Enter text to be spoken by the TTS engine.',
-        speak: 'Speak',
-        tts_placeholder: 'Enter text to speak...',
         stt_language: 'STT Language',
         temp_threshold: 'Temperature Threshold',
         gas_threshold: 'Gas Threshold',
-        wakeword_sensitivity: 'Wakeword Sensitivity',
         save_config: 'Save Config',
         load_config: 'Load Config',
         chat_placeholder: 'Type your command or message...',
@@ -1307,7 +1222,7 @@
         guardian_engine: 'Guardian Engine',
         alarm_engine: 'Alarm Engine',
         environment_status: 'Environment Status',
-        footer_note: 'Guardian AI Dashboard — Flask + ESP32 + STT/TTS + Wakeword',
+        footer_note: 'Guardian AI Dashboard — Flask + ESP32 + AI Voice',
         active: 'Active',
         inactive: 'Inactive',
         enabled: 'Enabled',
@@ -1327,7 +1242,7 @@
         no: 'No',
         sending: 'Sending...',
         no_response: 'No response received.',
-        defaults_loaded: 'UI defaults loaded. GET /api/config is not available in the current backend.',
+        defaults_loaded: 'Configuration values loaded into the form.',
         config_saved: 'Configuration sent successfully.',
         action_done: 'Action completed successfully.',
         request_failed: 'Request failed.',
@@ -1335,7 +1250,7 @@
         empty_text: 'Please enter text or a message.',
         quick_guardian_on: 'Guardian is active and the monitoring core is running.',
         quick_guardian_off: 'Guardian is inactive.',
-        quick_voice: 'STT: {stt} | TTS: {tts} | Wakeword: {wake}',
+        quick_voice: 'STT: {stt} | TTS: {tts}',
         quick_alarm: 'Alarm: {alarm} | Mute: {mute}',
         quick_env: 'Temp: {temp}°C | Gas ADC: {gas}',
         server_error: 'Server error',
@@ -1390,6 +1305,17 @@
         node.style.transform = 'translateY(6px)';
         setTimeout(() => node.remove(), 240);
       }, timeout);
+    }
+
+    function newRequestId(prefix='ui'){
+      const rand = (window.crypto && crypto.randomUUID)
+        ? crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+        : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      return `${prefix}_${rand}`;
+    }
+
+    function errorWithRequestId(message, requestId){
+      return requestId ? `${message} [ID: ${requestId}]` : message;
     }
 
     function safeNum(value, fallback = 0){
@@ -1447,7 +1373,7 @@
 
     function classifyGas(gas){
       gas = safeNum(gas, 0);
-      const threshold = safeNum(el('gas-threshold-input').value || state.defaults.GAS_THRESHOLD, 400);
+      const threshold = safeNum(el('gas-threshold-input').value || state.defaults.GAS_THRESHOLD, 2000);
       if (gas >= threshold) return { text: t('danger'), cls: 'alert' };
       if (gas >= threshold * 0.8) return { text: t('high'), cls: 'warn' };
       return { text: t('normal'), cls: 'ok' };
@@ -1478,8 +1404,7 @@
       el('guardian-quick-text').textContent = guardianOn ? t('quick_guardian_on') : t('quick_guardian_off');
       el('voice-quick-text').textContent = formatText(t('quick_voice'), {
         stt: sttOn ? t('active') : t('inactive'),
-        tts: ttsOn ? t('active') : t('inactive'),
-        wake: wakeOn ? t('enabled') : t('disabled')
+        tts: ttsOn ? t('active') : t('inactive')
       });
       el('alarm-quick-text').textContent = formatText(t('quick_alarm'), {
         alarm: alarmOn ? t('active') : t('inactive'),
@@ -1517,7 +1442,6 @@
       setPill('alarm-status-pill', boolish(data.alarm_status), t('active'), t('inactive'));
       setPill('stt-status-pill', boolish(data.stt_active), t('active'), t('inactive'));
       setPill('tts-status-pill', boolish(data.tts_active), t('active'), t('inactive'));
-      setPill('wakeword-status-pill', boolish(data.wakeword_active), t('enabled'), t('disabled'));
 
       if (data.alarm_muted !== undefined) {
         state.localAlarmMuted = boolish(data.alarm_muted);
@@ -1557,33 +1481,48 @@
     }
 
     async function postAction(endpoint, payload = {}){
+      const requestId = newRequestId('ui');
       const res = await fetch(endpoint, {
         method:'POST',
-        headers:{ 'Content-Type':'application/json' },
+        headers:{
+          'Content-Type':'application/json',
+          'X-Request-ID': requestId
+        },
         body: JSON.stringify(payload)
       });
 
+      const responseId = res.headers.get('X-Request-ID') || requestId;
       const raw = await res.text();
       let data = {};
       try { data = raw ? JSON.parse(raw) : {}; } catch { data = { raw }; }
+      data.request_id = data.request_id || responseId;
 
-      if (!res.ok) {
-        throw new Error(data.error || data.message || `${t('server_error')}: ${res.status}`);
+      if (!res.ok || data.ok === false || data.success === false) {
+        const err = new Error(errorWithRequestId(data.error || data.message || `${t('server_error')}: ${res.status}`, data.request_id));
+        err.requestId = data.request_id;
+        err.payload = data;
+        throw err;
       }
       return data;
     }
 
     async function fetchGuardianData(){
+      const requestId = newRequestId('poll');
       try{
-        const res = await fetch('/api/data', { cache:'no-store' });
+        const res = await fetch('/api/data', {
+          cache:'no-store',
+          headers:{ 'X-Request-ID': requestId }
+        });
+        const responseId = res.headers.get('X-Request-ID') || requestId;
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || t('request_failed'));
+        data.request_id = data.request_id || responseId;
+        if (!res.ok || data.ok === false) throw new Error(errorWithRequestId(data.error || t('request_failed'), data.request_id));
         const espOnline = data.online !== undefined ? boolish(data.online) : boolish(data.esp32_connected);
         setConnection(espOnline);
         updateUI(data);
       }catch(err){
         setConnection(false);
-        console.error(err);
+        console.error('[fetchGuardianData]', err.message || err);
       }
     }
 
@@ -1592,12 +1531,7 @@
         ESP32_IP: el('esp32-ip-input').value.trim(),
         TEMPERATURE_THRESHOLD: safeNum(el('temp-threshold-input').value, state.defaults.TEMPERATURE_THRESHOLD),
         GAS_THRESHOLD: safeNum(el('gas-threshold-input').value, state.defaults.GAS_THRESHOLD),
-        WAKEWORD_SENSITIVITY: safeNum(el('wakeword-sensitivity-input').value, state.defaults.WAKEWORD_SENSITIVITY),
         STT_LANGUAGE: el('stt-language-select').value,
-        TTS_VOICE_ID: el('tts-voice-id-input').value.trim(),
-        TTS_MODEL_PATH: el('tts-model-name-input').value.trim(),
-        AUDIO_INPUT_DEVICE_INDEX: el('audio-input-device-index-input').value === '' ? null : parseInt(el('audio-input-device-index-input').value, 10),
-        AUDIO_OUTPUT_DEVICE_INDEX: el('audio-output-device-index-input').value === '' ? null : parseInt(el('audio-output-device-index-input').value, 10),
         SYSTEM_PROMPT: el('system-prompt-input').value.trim()
       };
 
@@ -1612,13 +1546,7 @@
       el('esp32-ip-input').value = state.defaults.ESP32_IP || '';
       el('temp-threshold-input').value = state.defaults.TEMPERATURE_THRESHOLD;
       el('gas-threshold-input').value = state.defaults.GAS_THRESHOLD;
-      el('wakeword-sensitivity-input').value = state.defaults.WAKEWORD_SENSITIVITY;
-      el('wakeword-sensitivity-value').textContent = Number(state.defaults.WAKEWORD_SENSITIVITY).toFixed(2);
       el('stt-language-select').value = state.defaults.STT_LANGUAGE;
-      el('tts-voice-id-input').value = state.defaults.TTS_VOICE_ID || '';
-      el('tts-model-name-input').value = state.defaults.TTS_MODEL_PATH || '';
-      el('audio-input-device-index-input').value = state.defaults.AUDIO_INPUT_DEVICE_INDEX ?? '';
-      el('audio-output-device-index-input').value = state.defaults.AUDIO_OUTPUT_DEVICE_INDEX ?? '';
       el('system-prompt-input').value = state.defaults.SYSTEM_PROMPT || '';
     }
 
@@ -1645,22 +1573,6 @@
       }
     }
 
-    async function speakText(){
-      const text = el('tts-text-input').value.trim();
-      if (!text) {
-        showToast(t('empty_text'), 'warning');
-        return;
-      }
-      try{
-        const data = await postAction('/api/tts/speak', { text });
-        showToast(data.status || t('action_done'), 'success');
-        el('tts-text-input').value = '';
-        await fetchGuardianData();
-      }catch(err){
-        showToast(err.message || t('network_error'), 'error');
-      }
-    }
-
     async function sendChat(){
       const input = el('chat-input');
       const command = input.value.trim();
@@ -1679,7 +1591,7 @@
         if (wrap.lastElementChild && wrap.lastElementChild.classList.contains('system')) {
           wrap.lastElementChild.remove();
         }
-        addChatMessage(data.response || t('no_response'), 'bot');
+        addChatMessage(data.response || data.reply || data.result || data.message || t('no_response'), 'bot');
         await fetchGuardianData();
       }catch(err){
         const wrap = el('chat-output');
@@ -1703,10 +1615,7 @@
       el('stt-start-btn').addEventListener('click', () => doAction('/api/stt/start', 'success'));
       el('stt-stop-btn').addEventListener('click', () => doAction('/api/stt/stop', 'warning'));
 
-      el('wakeword-enable-btn').addEventListener('click', () => doAction('/api/wakeword/enable', 'success'));
-      el('wakeword-disable-btn').addEventListener('click', () => doAction('/api/wakeword/disable', 'warning'));
 
-      el('tts-speak-btn').addEventListener('click', speakText);
       el('chat-send-btn').addEventListener('click', sendChat);
       el('save-config-btn').addEventListener('click', saveConfig);
 
@@ -1719,13 +1628,6 @@
         if (e.key === 'Enter') sendChat();
       });
 
-      el('tts-text-input').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') speakText();
-      });
-
-      el('wakeword-sensitivity-input').addEventListener('input', (e) => {
-        el('wakeword-sensitivity-value').textContent = Number(e.target.value).toFixed(2);
-      });
     }
 
     function init(){

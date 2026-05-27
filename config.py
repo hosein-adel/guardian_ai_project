@@ -71,9 +71,13 @@ ESP32_TIMEOUT = int(os.getenv("ESP32_TIMEOUT", "3"))
 # =========================
 # Alarm thresholds
 # =========================
-ALARM_THRESHOLD_MQ9 = int(os.getenv("ALARM_THRESHOLD_MQ9", "500"))
-ALARM_THRESHOLD_TEMP = float(os.getenv("ALARM_THRESHOLD_TEMP", "100"))
+ALARM_THRESHOLD_MQ9 = int(os.getenv("ALARM_THRESHOLD_MQ9", "2000"))
+ALARM_THRESHOLD_TEMP = float(os.getenv("ALARM_THRESHOLD_TEMP", "50"))
 FLAME_ACTIVE_VALUE = os.getenv("FLAME_ACTIVE_VALUE", "1")
+
+# Canonical names used by GuardianCore/dashboard runtime.
+GAS_THRESHOLD = ALARM_THRESHOLD_MQ9
+TEMP_THRESHOLD = ALARM_THRESHOLD_TEMP
 
 
 # =========================

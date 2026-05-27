@@ -502,3 +502,182 @@ def test_404_error_body_includes_request_id(client):
     data = response.get_json()
     assert data["ok"] is False
     assert data["request_id"] == response.headers.get("X-Request-ID")
+
+
+def test_frontend_sends_request_id_and_displays_errors_with_id():
+    from pathlib import Path
+
+    html = Path("templates/index.html").read_text(encoding="utf-8")
+    voice_js = Path("static/voice.js").read_text(encoding="utf-8")
+
+    assert "function newRequestId" in html
+    assert "'X-Request-ID': requestId" in html
+    assert "errorWithRequestId" in html
+    assert "headers: { \"X-Request-ID\": requestId }" in voice_js
+    assert "withRequestId" in voice_js
+
+
+def test_voice_request_body_id_matches_response_header(client):
+    response = client.post("/api/voice/transcribe")
+    data = response.get_json()
+    assert response.status_code == 400
+    assert data["request_id"] == response.headers.get("X-Request-ID")
+    assert data["request_id"].startswith("voice_")
+
+
+def test_voice_request_uses_incoming_request_id(client):
+    response = client.post("/api/voice/transcribe", headers={"X-Request-ID": "voice_ui_test123"})
+    data = response.get_json()
+    assert response.status_code == 400
+    assert response.headers.get("X-Request-ID") == "voice_ui_test123"
+    assert data["request_id"] == "voice_ui_test123"
+
+
+def assert_standard_error_schema(response):
+    data = response.get_json()
+    assert data["ok"] is False
+    assert data["success"] is False
+    assert data["error"]
+    assert data["request_id"] == response.headers.get("X-Request-ID")
+
+
+def test_tts_empty_text_uses_standard_error_schema(client):
+    response = client.post("/api/tts/speak", json={})
+    assert response.status_code == 400
+    assert_standard_error_schema(response)
+
+
+def test_compat_chat_empty_text_uses_standard_error_schema(client):
+    response = client.post("/api/chat", json={})
+    assert response.status_code == 400
+    assert_standard_error_schema(response)
+
+
+def test_guardian_chat_empty_text_uses_standard_error_schema(client):
+    response = client.post("/api/guardian/chat", json={})
+    assert response.status_code == 400
+    assert_standard_error_schema(response)
+
+
+def test_api_data_exposes_esp32_connection_metadata(client, monkeypatch):
+    import app as app_module
+
+    class FakeESP32:
+        def get_data(self):
+            return {
+                "esp32_online": False,
+                "esp32_base_url": "http://192.168.10.55",
+                "esp32_last_error": "connection_error",
+                "esp32_last_error_detail": "No route to host",
+                "error": "connection_error",
+                "source": "fallback",
+            }
+
+    monkeypatch.setattr(app_module, "esp32_client", FakeESP32())
+    response = client.get("/api/data")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["online"] is False
+    assert data["esp32_connected"] is False
+    assert data["esp32_base_url"] == "http://192.168.10.55"
+    assert data["esp32_error"] == "connection_error"
+    assert data["esp32_error_detail"] == "No route to host"
+
+
+def test_removed_unused_dashboard_controls_do_not_leave_js_references():
+    from pathlib import Path
+
+    html = Path("templates/index.html").read_text(encoding="utf-8")
+    removed_ids_and_functions = [
+        "listenAndChat",
+        "chatBox",
+        "langSelect",
+        "tts-text-input",
+        "tts-speak-btn",
+        "speakText",
+        "wakeword-enable-btn",
+        "wakeword-disable-btn",
+        "wakeword-sensitivity-input",
+    ]
+    for item in removed_ids_and_functions:
+        assert item not in html
+
+
+def test_chat_frontend_accepts_response_reply_result_or_message():
+    from pathlib import Path
+
+    html = Path("templates/index.html").read_text(encoding="utf-8")
+    assert "data.response || data.reply || data.result || data.message || t('no_response')" in html
+
+
+def test_voice_js_records_wav_not_webm_and_limits_duration():
+    from pathlib import Path
+
+    js = Path("static/voice.js").read_text(encoding="utf-8")
+    assert "MAX_RECORDING_MS = 25000" in js
+    assert "encodeWav" in js
+    assert "audio/wav" in js
+    assert "recording.wav" in js
+    assert "MediaRecorder" not in js
+    assert "recording.webm" not in js
+
+
+def test_chat_ai_error_returns_error_not_fake_success(client, monkeypatch):
+    import app as app_module
+    from voice.ai_chat import AIChatError
+
+    class FakeCore:
+        def chat(self, text, speak=True, raise_errors=False):
+            raise AIChatError("LLM provider connection/error: Connection error.")
+
+    monkeypatch.setattr(app_module, "core", FakeCore())
+
+    response = client.post("/api/chat", json={"command": "سلام"})
+    assert response.status_code == 502
+    data = response.get_json()
+    assert data["ok"] is False
+    assert data["success"] is False
+    assert data["error_type"] == "ai_chat_error"
+    assert "Connection error" in data["error"]
+    assert data["request_id"] == response.headers.get("X-Request-ID")
+
+
+def test_guardian_chat_missing_ai_key_returns_503(client, monkeypatch):
+    import app as app_module
+    from voice.ai_chat import AIChatError
+
+    class FakeCore:
+        def chat(self, text, speak=True, raise_errors=False):
+            raise AIChatError("OpenAI API key not configured.")
+
+    monkeypatch.setattr(app_module, "core", FakeCore())
+
+    response = client.post("/api/guardian/chat", json={"text": "سلام"})
+    assert response.status_code == 503
+    data = response.get_json()
+    assert data["ok"] is False
+    assert data["error_type"] == "ai_chat_error"
+    assert "api key" in data["error"].lower()
+
+
+def test_dashboard_no_wakeword_status_and_thresholds_match_esp32_defaults():
+    from pathlib import Path
+
+    html = Path("templates/index.html").read_text(encoding="utf-8")
+    assert "wakeword-status-pill" not in html
+    assert "wakeword_label" not in html
+    assert "GAS_THRESHOLD: 2000" in html
+    assert 'id="gas-threshold-input" type="number" step="0.1" value="2000"' in html
+    assert "GET /api/config در بک‌اند فعلی وجود ندارد" not in html
+
+
+def test_config_threshold_defaults_match_esp32():
+    import importlib
+    import config
+
+    reloaded = importlib.reload(config)
+    assert reloaded.ALARM_THRESHOLD_MQ9 == 2000
+    assert reloaded.GAS_THRESHOLD == 2000
+    assert reloaded.ALARM_THRESHOLD_TEMP == 50
+    assert reloaded.TEMP_THRESHOLD == 50

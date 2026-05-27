@@ -67,3 +67,13 @@ def test_esp32_connection_error_log_is_throttled(mock_get, monkeypatch):
     client.get_sensor_data()
     connection_logs = [line for line in printed if "Connection error" in line]
     assert len(connection_logs) == 2
+
+
+def test_esp32_offline_data_contains_connection_metadata():
+    client = ESP32Client("http://192.168.10.55")
+    data = client._offline_data("connection_error", detail="No route to host")
+
+    assert data["esp32_online"] is False
+    assert data["esp32_base_url"] == "http://192.168.10.55"
+    assert data["esp32_last_error"] == "connection_error"
+    assert data["esp32_last_error_detail"] == "No route to host"

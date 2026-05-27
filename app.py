@@ -24,10 +24,11 @@ except Exception as exc:
     SpeechToTextEngine = None
 
 try:
-    from voice.ai_chat import AIChatEngine
+    from voice.ai_chat import AIChatEngine, AIChatError
 except Exception as exc:
     get_logger("app").warning(f"AIChat import failed: {exc}")
     AIChatEngine = None
+    AIChatError = RuntimeError
 
 from core.guardian import GuardianCore, AlertService
 from services.esp32 import ESP32Client
@@ -50,7 +51,8 @@ app = Flask(__name__)
 def attach_request_id():
     """Attach a trace id to every backend request so no request is untraceable."""
     incoming = (request.headers.get("X-Request-ID") or "").strip()
-    g.request_id = incoming[:80] if incoming else new_request_id("req")
+    prefix = "voice" if request.path == "/api/voice/transcribe" else "req"
+    g.request_id = incoming[:80] if incoming else new_request_id(prefix)
 
 
 @app.after_request
@@ -301,6 +303,7 @@ guardian = GuardianAIWrapper(
 def make_error(message, status_code=500, extra=None):
     payload = {
         "ok": False,
+        "success": False,
         "error": str(message),
     }
 
@@ -490,6 +493,9 @@ def normalize_sensor_data(raw):
         "guardian_active": guardian_active,
         "warmup_done": warmup_done,
         "esp32_online": esp32_online,
+        "esp32_error": raw.get("esp32_last_error", raw.get("error", "")),
+        "esp32_error_detail": raw.get("esp32_last_error_detail", ""),
+        "esp32_base_url": raw.get("esp32_base_url"),
 
         # metadata
         "device_name": raw.get("device_name", "Guardian ESP32"),
@@ -599,9 +605,22 @@ def api_data():
         online = bool(data.get("esp32_online", False))
 
         if shared_state is not None:
-            shared_state.set_sensor_data(data)
-            with shared_state.current_data_lock:
-                shared_state.current_data = data
+            if online:
+                shared_state.set_sensor_data(data)
+                with shared_state.current_data_lock:
+                    shared_state.current_data = data
+            else:
+                last_good = shared_state.get_sensor_data()
+                if last_good and last_good.get("esp32_online"):
+                    # Keep the last real sensor values on transient disconnects; only status/error changes.
+                    data = {
+                        **last_good,
+                        "esp32_online": False,
+                        "esp32_error": data.get("esp32_error", data.get("error", "")),
+                        "esp32_error_detail": data.get("esp32_error_detail", ""),
+                        "esp32_base_url": data.get("esp32_base_url"),
+                        "source": "last_good_cache",
+                    }
 
         return jsonify({
             "ok": True,
@@ -787,7 +806,8 @@ def api_voice_transcribe():
     Pipeline: Audio → Whisper (STT) → GPT (chat) → OpenAI TTS → return text + play audio.
     Every branch returns a request_id so no voice request is untraceable.
     """
-    request_id = new_request_id("voice")
+    request_id = getattr(g, "request_id", "") or new_request_id("voice")
+    g.request_id = request_id
     tmp_path = None
 
     try:
@@ -881,10 +901,13 @@ def api_voice_transcribe():
         if hasattr(core, "chat"):
             try:
                 # In voice mode this route owns TTS playback. Prevent core.chat from speaking too.
-                reply = core.chat(heard, speak=False)
+                reply = core.chat(heard, speak=False, raise_errors=True)
             except TypeError:
-                # Compatibility for any older/custom core.chat(text) implementation.
-                reply = core.chat(heard)
+                # Compatibility for core.chat(text, speak=False) implementations without raise_errors.
+                try:
+                    reply = core.chat(heard, speak=False)
+                except TypeError:
+                    reply = core.chat(heard)
         elif hasattr(core, "handle_text"):
             reply = core.handle_text(heard)
         else:
@@ -917,34 +940,44 @@ def api_voice_transcribe():
         })
 
     except Exception as e:
+        if isinstance(e, AIChatError):
+            logger.warning(f"[VOICE:{request_id}] AI chat failed: {e}")
+            status = 503 if "api key" in str(e).lower() else 502
+            return jsonify({
+                "ok": False,
+                "success": False,
+                "request_id": request_id,
+                "error": str(e),
+                "error_type": "ai_chat_error"
+            }), status
         logger.exception(f"[VOICE:{request_id}] Voice transcribe failed")
-        return jsonify({"ok": False, "request_id": request_id, "error": str(e)}), 500
+        return jsonify({"ok": False, "success": False, "request_id": request_id, "error": str(e)}), 500
 
 
 @app.route("/api/guardian/chat", methods=["POST"])
 def api_guardian_chat():
     try:
         if core is None:
-            return jsonify({"ok": False, "error": "Guardian core not initialized"}), 503
+            return make_error("Guardian core not initialized", 503)
 
         data = request.get_json(silent=True) or {}
         text = (data.get("text") or "").strip()
 
         if not text:
-            return jsonify({"ok": False, "error": "text is required"}), 400
+            return make_error("text is required", 400)
 
         if hasattr(core, "chat"):
             try:
-                reply = core.chat(text, speak=False)
+                reply = core.chat(text, speak=False, raise_errors=True)
             except TypeError:
-                reply = core.chat(text)
+                try:
+                    reply = core.chat(text, speak=False)
+                except TypeError:
+                    reply = core.chat(text)
         elif hasattr(core, "handle_text"):
             reply = core.handle_text(text)
         else:
-            return jsonify({
-                "ok": False,
-                "error": "No chat method found on guardian_core"
-            }), 501
+            return make_error("No chat method found on guardian_core", 501)
 
         return jsonify({
             "ok": True,
@@ -952,11 +985,12 @@ def api_guardian_chat():
             "reply": reply
         })
     except Exception as e:
+        if isinstance(e, AIChatError):
+            logger.warning(f"Guardian chat AI failed: {e}")
+            status = 503 if "api key" in str(e).lower() else 502
+            return make_error(str(e), status, {"error_type": "ai_chat_error"})
         logger.exception("Guardian chat failed")
-        return jsonify({
-            "ok": False,
-            "error": str(e)
-        }), 500
+        return make_error(str(e), 500)
 
 
 @app.route("/api/tts/speak", methods=["POST"])
@@ -966,7 +1000,7 @@ def api_tts_speak():
         text = (data.get("text") or "").strip()
 
         if not text:
-            return jsonify({"ok": False, "error": "text is required"}), 400
+            return make_error("text is required", 400)
 
         def _speak():
             try:
@@ -984,7 +1018,7 @@ def api_tts_speak():
         })
     except Exception as e:
         logger.exception("TTS speak failed")
-        return jsonify({"ok": False, "error": str(e)}), 500
+        return make_error(str(e), 500)
 
 
 @app.route("/api/alarm/mute", methods=["POST"])
@@ -1014,21 +1048,24 @@ def api_chat_compat():
         ).strip()
 
         if not text:
-            return jsonify({"ok": False, "success": False, "error": "text/command is required"}), 400
+            return make_error("text/command is required", 400)
 
         shared_state.set_last_command(text)
 
         if core is not None and hasattr(core, "chat"):
             try:
-                reply = core.chat(text, speak=False)
+                reply = core.chat(text, speak=False, raise_errors=True)
             except TypeError:
-                reply = core.chat(text)
+                try:
+                    reply = core.chat(text, speak=False)
+                except TypeError:
+                    reply = core.chat(text)
         elif core is not None and hasattr(core, "handle_text"):
             reply = core.handle_text(text)
         elif ai_chat is not None:
             reply = ai_chat.chat(text, sensor_context=getattr(shared_state, "current_data", {}))
         else:
-            return jsonify({"ok": False, "success": False, "error": "Chat engine is not initialized"}), 503
+            return make_error("Chat engine is not initialized", 503)
 
         shared_state.set_last_response(reply)
 
@@ -1040,8 +1077,12 @@ def api_chat_compat():
             "reply": reply,
         })
     except Exception as e:
+        if isinstance(e, AIChatError):
+            logger.warning(f"Compat chat AI failed: {e}")
+            status = 503 if "api key" in str(e).lower() else 502
+            return make_error(str(e), status, {"error_type": "ai_chat_error"})
         logger.exception("Compat chat failed")
-        return jsonify({"ok": False, "success": False, "error": str(e)}), 500
+        return make_error(str(e), 500)
 
 
 @app.route("/api/config", methods=["GET", "POST"])
@@ -1062,8 +1103,7 @@ def api_config():
                     "ESP32_IP": getattr(config, "ESP32_IP", ""),
                     "ESP32_BASE_URL": getattr(config, "ESP32_BASE_URL", ""),
                     "TEMPERATURE_THRESHOLD": getattr(config, "TEMP_THRESHOLD", getattr(config, "ALARM_THRESHOLD_TEMP", 50)),
-                    "GAS_THRESHOLD": getattr(config, "GAS_THRESHOLD", getattr(config, "ALARM_THRESHOLD_MQ9", 400)),
-                    "WAKEWORD_SENSITIVITY": getattr(config, "WAKE_WORD_SENSITIVITIES", [0.5])[0],
+                    "GAS_THRESHOLD": getattr(config, "GAS_THRESHOLD", getattr(config, "ALARM_THRESHOLD_MQ9", 2000)),
                     "STT_LANGUAGE": "fa",
                     "TTS_VOICE_ID": getattr(config, "OPENAI_TTS_VOICE", ""),
                     "TTS_MODEL_PATH": getattr(config, "OPENAI_TTS_MODEL", ""),

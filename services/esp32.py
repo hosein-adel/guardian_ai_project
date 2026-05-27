@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import threading
 
 
 class ESP32Client:
@@ -28,6 +29,12 @@ class ESP32Client:
         self.error_log_interval = 30
         self._last_error_log = {}
         self._last_online = None
+        self._log_lock = threading.Lock()
+        self.last_error = ""
+        self.last_error_detail = ""
+        self.last_error_at = None
+        # ESP32 is a local LAN device; never send it through system/VPN HTTP proxies.
+        self.proxies = {"http": "", "https": ""}
 
         esp32_ip = str(esp32_ip).strip()
 
@@ -39,18 +46,26 @@ class ESP32Client:
 
         print(f"[ESP32Client] Base URL: {self.base_url}")
 
-    def _log_issue(self, key, message):
-        """Throttle repeated offline/error messages so dashboard polling does not spam logs."""
+    def _log_issue(self, key, message, detail=""):
+        """Throttle repeated offline/error messages so dashboard/guardian polling does not spam logs."""
         now = time.time()
-        last = self._last_error_log.get(key, 0)
-        if now - last >= self.error_log_interval:
-            print(message)
-            self._last_error_log[key] = now
+        with self._log_lock:
+            self.last_error = key
+            self.last_error_detail = str(detail or "")
+            self.last_error_at = now
+            last = self._last_error_log.get(key, 0)
+            if now - last >= self.error_log_interval:
+                suffix = f" | detail: {detail}" if detail else ""
+                print(f"{message}{suffix}")
+                self._last_error_log[key] = now
 
     def _mark_online(self):
         if self._last_online is False:
             print(f"[ESP32Client] ESP32 connection restored: {self.base_url}")
         self._last_online = True
+        self.last_error = ""
+        self.last_error_detail = ""
+        self.last_error_at = None
 
     def _mark_offline(self):
         self._last_online = False
@@ -64,7 +79,8 @@ class ESP32Client:
         try:
             response = requests.get(
                 f"{self.base_url}/",
-                timeout=self.timeout
+                timeout=self.timeout,
+                proxies=self.proxies,
             )
 
             online = response.status_code == 200
@@ -76,7 +92,7 @@ class ESP32Client:
 
         except requests.exceptions.RequestException as e:
             self._mark_offline()
-            self._log_issue("is_online", f"[ESP32Client] ESP32 is offline or unreachable: {e}")
+            self._log_issue("is_online", "[ESP32Client] ESP32 is offline or unreachable", e)
             return False
 
     def get_sensor_data(self):
@@ -99,7 +115,7 @@ class ESP32Client:
         url = f"{self.base_url}/data"
 
         try:
-            response = requests.get(url, timeout=self.timeout)
+            response = requests.get(url, timeout=self.timeout, proxies=self.proxies)
             response.raise_for_status()
 
             data = response.json()
@@ -133,30 +149,30 @@ class ESP32Client:
 
             return normalized_data
 
-        except requests.exceptions.Timeout:
+        except requests.exceptions.Timeout as e:
             self._mark_offline()
-            self._log_issue("timeout", f"[ESP32Client] Timeout while requesting: {url}")
-            return self._offline_data("timeout")
+            self._log_issue("timeout", f"[ESP32Client] Timeout while requesting: {url}", e)
+            return self._offline_data("timeout", detail=e)
 
-        except requests.exceptions.ConnectionError:
+        except requests.exceptions.ConnectionError as e:
             self._mark_offline()
-            self._log_issue("connection_error", f"[ESP32Client] Connection error. Cannot reach ESP32 at: {url}")
-            return self._offline_data("connection_error")
+            self._log_issue("connection_error", f"[ESP32Client] Connection error. Cannot reach ESP32 at: {url}", e)
+            return self._offline_data("connection_error", detail=e)
 
         except requests.exceptions.HTTPError as e:
             self._mark_offline()
-            self._log_issue("http_error", f"[ESP32Client] HTTP error from ESP32: {e}")
-            return self._offline_data("http_error")
+            self._log_issue("http_error", f"[ESP32Client] HTTP error from ESP32: {e}", e)
+            return self._offline_data("http_error", detail=e)
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             self._mark_offline()
-            self._log_issue("invalid_json", f"[ESP32Client] Invalid JSON received from ESP32: {url}")
-            return self._offline_data("invalid_json")
+            self._log_issue("invalid_json", f"[ESP32Client] Invalid JSON received from ESP32: {url}", e)
+            return self._offline_data("invalid_json", detail=e)
 
         except Exception as e:
             self._mark_offline()
-            self._log_issue("unknown_error", f"[ESP32Client] Unexpected error: {e}")
-            return self._offline_data("unknown_error")
+            self._log_issue("unknown_error", f"[ESP32Client] Unexpected error: {e}", e)
+            return self._offline_data("unknown_error", detail=e)
 
 
     def get_data(self):
@@ -181,7 +197,8 @@ class ESP32Client:
             response = requests.post(
                 url,
                 json=config_data,
-                timeout=self.timeout
+                timeout=self.timeout,
+                proxies=self.proxies,
             )
 
             response.raise_for_status()
@@ -196,13 +213,15 @@ class ESP32Client:
 
         except requests.exceptions.RequestException as e:
             self._mark_offline()
-            self._log_issue("send_config", f"[ESP32Client] Error sending config to ESP32: {e}")
+            self._log_issue("send_config", "[ESP32Client] Error sending config to ESP32", e)
             return {
                 "success": False,
-                "error": str(e)
+                "error": str(e),
+                "esp32_last_error": "send_config",
+                "esp32_last_error_detail": str(e),
             }
 
-    def _offline_data(self, reason="offline"):
+    def _offline_data(self, reason="offline", detail=""):
         """
         خروجی امن وقتی ESP32 در دسترس نیست.
         این باعث می‌شود Flask یا dashboard کرش نکند.
@@ -223,6 +242,9 @@ class ESP32Client:
             "guardian_active": False,
 
             "esp32_online": False,
+            "esp32_base_url": self.base_url,
+            "esp32_last_error": reason,
+            "esp32_last_error_detail": str(detail or self.last_error_detail or ""),
             "source": "fallback",
             "error": reason
         }

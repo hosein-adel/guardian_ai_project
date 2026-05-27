@@ -79,8 +79,14 @@ class GuardianCore(threading.Thread):
         self.tts_engine = self.tts_engine or self._init_tts_engine()
         self.ai_chat = self.ai_chat or self._init_ai_chat()
 
-        self.gas_threshold = self.get_config_value("GAS_THRESHOLD", 400)
-        self.temp_threshold = self.get_config_value("TEMP_THRESHOLD", 50)
+        self.gas_threshold = self.get_config_value(
+            "GAS_THRESHOLD",
+            self.get_config_value("ALARM_THRESHOLD_MQ9", 2000)
+        )
+        self.temp_threshold = self.get_config_value(
+            "TEMP_THRESHOLD",
+            self.get_config_value("ALARM_THRESHOLD_TEMP", 50)
+        )
         self.monitor_interval = self.get_config_value("MONITOR_INTERVAL", 5)
 
     def _init_tts_engine(self):
@@ -212,11 +218,14 @@ class GuardianCore(threading.Thread):
             return "هشدار بررسی شد"
         return f"پیام دریافت شد: {text}"
 
-    def chat(self, text, speak=True):
+    def chat(self, text, speak=True, raise_errors=False):
         if self.ai_chat is not None:
             try:
                 ctx = self.shared_state.current_data if hasattr(self.shared_state, "current_data") else {}
-                reply = self.ai_chat.chat(text, sensor_context=ctx)
+                try:
+                    reply = self.ai_chat.chat(text, sensor_context=ctx, raise_errors=raise_errors)
+                except TypeError:
+                    reply = self.ai_chat.chat(text, sensor_context=ctx)
                 if speak and self.tts_engine:
                     try:
                         self.tts_engine.speak(reply)
@@ -225,6 +234,8 @@ class GuardianCore(threading.Thread):
                 return reply
             except Exception as e:
                 print(f"[GuardianCore.chat] AI chat failed: {e}")
+                if raise_errors:
+                    raise
 
         reply_text = "پاسخ Guardian آماده است."
         if speak and self.tts_engine:

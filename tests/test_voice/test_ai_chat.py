@@ -44,3 +44,14 @@ def test_ai_chat_summarize_alarms(mock_openai):
         engine = AIChatEngine(FakeConfig())
         text = engine.summarize_alarms(["Gas Leak"], lang="fa")
         assert text == "آلارم فعال است"
+
+
+def test_ai_chat_raise_errors_on_no_key():
+    from voice.ai_chat import AIChatError
+
+    class NoKeyConfig:
+        OPENAI_API_KEY = ""
+
+    engine = AIChatEngine(NoKeyConfig())
+    with pytest.raises(AIChatError):
+        engine.chat("سلام", raise_errors=True)
